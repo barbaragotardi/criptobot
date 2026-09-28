@@ -1,0 +1,102 @@
+assets:
+  - BTC
+  - ETH
+  - XRP
+  - SOL
+  - LINK
+  - XLM
+  - BCH
+  - NEAR
+  - UNI
+  - LTC
+  - AVAX
+
+timeframes:
+  macro: 1D
+  setup: 4H
+  confirmation: 15m
+
+timeframe_map:
+  1D: 1d
+  4H: 4h
+  15m: 15m
+
+data:
+  daily_initial_candles: 700
+  warmup:
+    1D: 700
+    4H: 700
+    15m: 700
+
+backtest:
+  data_dir: data/historical
+  fee_percent: 0.1
+  slippage_percent: 0.05
+
+ema:
+  periods:
+    - 20
+    - 50
+    - 100
+    - 200
+
+atr:
+  period: 14
+
+macro:
+  price_above_ema200: true
+  ema200_slope_required: true
+  slope_periods: 5
+  ema20_above_ema50: true
+
+market_filter:
+  enabled: true
+  reference_asset: BTC
+  bearish_action: BLOCK
+  cache_per_cycle: true
+
+entry:
+  allowed_emas:
+    - 20
+    - 50
+  touch_threshold_percent: 1.0
+  use_atr_distance: true
+  atr_k: 0.5
+
+confirmation:
+  timeframe: 15m
+  candle_closed_only: true
+  require_reversal: true
+
+invalidation:
+  max_15m_candles_without_confirmation: 16
+  invalidate_below_pullback_low: true
+  invalidate_below_ema50_4h: true
+
+risk:
+  stop_method: structure_atr
+  atr_multiplier: 1.0
+  min_risk_reward: 2.0
+  max_risk_per_trade_percent: 1.0
+  simulated_account_balance: 1000
+
+target:
+  absolute_min_percent: 3.0
+  preferred_min_percent: 5.0
+  preferred_max_percent: 10.0
+  allow_above_preferred_range: true
+  resistance_aware: true
+  resistance_lookback_4h: 50
+
+exposure:
+  max_open_signals: 3
+  max_signals_per_day: 5
+  max_correlated_exposure: 2
+
+system:
+  candle_closed_only: true
+  cooldown_hours: 12
+  poll_seconds: 60
+  quote_currency: USDT
+  db_path: data/robit.sqlite3
+  dry_run: false
