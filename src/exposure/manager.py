@@ -1,4 +1,6 @@
-"""Exposure manager (section 23). V1: all non-BTC assets share one correlated group."""
+"""Exposure manager (section 23). V4: caps count OPEN paper positions.
+
+V1: all non-BTC assets share one correlated group."""
 
 import sqlite3
 import time
@@ -11,11 +13,12 @@ def _day(now: int | None) -> str:
 
 def exposure_ok(conn: sqlite3.Connection, asset: str, cfg: dict, now: int | None = None) -> tuple[bool, str]:
     exp = cfg["exposure"]
-    rows = conn.execute("SELECT asset, state FROM asset_state").fetchall()
-    open_signals = sum(1 for _, s in rows if s in ("WATCHING", "TOUCHED_EMA", "CONFIRMED"))
+    open_signals = conn.execute(
+        "SELECT COUNT(*) FROM paper_positions WHERE status='OPEN'").fetchone()[0]
     if open_signals >= exp["max_open_signals"]:
         return False, "max_open_signals"
-    correlated = sum(1 for a, s in rows if a != "BTC" and s in ("WATCHING", "TOUCHED_EMA", "CONFIRMED"))
+    correlated = conn.execute(
+        "SELECT COUNT(*) FROM paper_positions WHERE status='OPEN' AND asset != 'BTC'").fetchone()[0]
     if asset != "BTC" and correlated >= exp["max_correlated_exposure"]:
         return False, "max_correlated_exposure"
     today = _day(now)

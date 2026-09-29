@@ -20,7 +20,8 @@ TF_15M_MS = 900_000
 
 
 def run_asset(cfg: dict, asset: str, hist: dict, btc_hist: dict,
-              start_ms: int = 0, end_ms: int = 0, log_every: int = 5000) -> list[dict]:
+              start_ms: int = 0, end_ms: int = 0, log_every: int = 5000,
+              status_counter=None) -> list[dict]:
     cfg = dict(cfg)
     cfg["system"] = dict(cfg["system"], dry_run=True)  # never send real alerts in backtest
     conn = connect(":memory:")
@@ -41,7 +42,10 @@ def run_asset(cfg: dict, asset: str, hist: dict, btc_hist: dict,
         market_status = evaluate_market_filter(btc_1d["1D"], cfg)
         if log_every and i % log_every == 0:
             log.warning("%s replay %d/%d (%.0fs)", asset, i, len(h15), time.time() - t0)
-        if evaluate_asset(asset, frames, market_status, conn, cfg, now_ts=now_s) != "SIGNAL":
+        res = evaluate_asset(asset, frames, market_status, conn, cfg, now_ts=now_s)
+        if status_counter is not None:
+            status_counter[res] += 1
+        if res != "SIGNAL":
             continue
         st = get_state(conn, asset)
         ex = simulate_exit(h15, i, st["stop"], st["tp"])
@@ -54,6 +58,8 @@ def run_asset(cfg: dict, asset: str, hist: dict, btc_hist: dict,
             "stop": st["stop"],
             "tp": st["tp"],
             "rr": st["rr"],
+            "stop_method": cfg["risk"].get("stop_method", "structure_atr"),
+            "confirm_method": cfg["confirmation"].get("method", "reversal"),
             "btc_bullish": market_status["bullish"],
             "exit_ts": int(h15.iloc[ex["exit_idx"]]["ts"]) + TF_15M_MS,
             "exit_price": exit_eff,

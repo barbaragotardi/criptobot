@@ -5,22 +5,29 @@ def calc_stop(pullback_low: float, atr: float, atr_multiplier: float) -> float:
     return pullback_low - atr * atr_multiplier
 
 
+def calc_stop_method(method: str, entry: float, pullback_low: float, atr: float, atr_multiplier: float) -> float:
+    if method == "atr_only":
+        return entry - atr * atr_multiplier
+    return calc_stop(pullback_low, atr, atr_multiplier)
+
+
 # --- Resistance: max high of last N 4H candles (V1 proxy, section 18) ---
 def find_resistance(df_4h, lookback: int) -> float:
     return float(df_4h.iloc[-lookback:]["high"].max())
 
 
-# --- TP: min(resistance, entry*(1+preferred_max)); validations per section 19 ---
+# --- TP: resistance (sanity-capped); preferred range is classification only, not a ceiling ---
 def calc_tp(entry: float, resistance: float, cfg: dict) -> tuple[float, str]:
     t = cfg["target"]
-    cap = entry * (1 + t["preferred_max_percent"] / 100)
-    tp = min(resistance, cap)
+    tp = min(resistance, entry * (1 + t.get("max_tp_percent", 50.0) / 100))
     ret_pct = (tp - entry) / entry * 100
     if ret_pct < t["absolute_min_percent"]:
         return tp, "REJECT"
     if ret_pct < t["preferred_min_percent"]:
         return tp, "ABAIXO DA FAIXA PREFERENCIAL"
-    return tp, "FAIXA PREFERENCIAL"
+    if ret_pct <= t["preferred_max_percent"]:
+        return tp, "FAIXA PREFERENCIAL"
+    return tp, "ACIMA DA FAIXA PREFERENCIAL"
 
 
 def risk_reward(entry: float, stop: float, tp: float) -> float:

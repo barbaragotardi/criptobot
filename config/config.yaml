@@ -67,6 +67,7 @@ confirmation:
   timeframe: 15m
   candle_closed_only: true
   require_reversal: true
+  method: reversal  # reversal | ema_reclaim
 
 invalidation:
   max_15m_candles_without_confirmation: 16
@@ -74,7 +75,7 @@ invalidation:
   invalidate_below_ema50_4h: true
 
 risk:
-  stop_method: structure_atr
+  stop_method: structure_atr  # structure_atr | atr_only
   atr_multiplier: 1.0
   min_risk_reward: 2.0
   max_risk_per_trade_percent: 1.0
@@ -84,19 +85,29 @@ target:
   absolute_min_percent: 3.0
   preferred_min_percent: 5.0
   preferred_max_percent: 10.0
+  max_tp_percent: 50.0
   allow_above_preferred_range: true
   resistance_aware: true
   resistance_lookback_4h: 50
 
 exposure:
-  max_open_signals: 3
-  max_signals_per_day: 5
-  max_correlated_exposure: 2
+  max_open_signals: 15
+  max_signals_per_day: 10
+  max_correlated_exposure: 15
+
+paper_trading:
+  enabled: true
+
+portfolio:
+  enabled: true
+  thresholds_percent: [5.0, 10.0]
 
 system:
   candle_closed_only: true
   cooldown_hours: 12
   poll_seconds: 60
+  telegram_poll_timeout_s: 30
+  timezone: America/Sao_Paulo
   quote_currency: USDT
   db_path: data/robit.sqlite3
   dry_run: false

@@ -5,13 +5,15 @@ import time
 
 import pandas as pd
 
-from src.alerts.telegram import format_alert, send_telegram
-from src.confirmation.confirm import confirm_reversal
+from src.alerts.telegram import format_alert, format_paper_open, send_telegram
+from src.backtest.costs import apply_entry
+from src.confirmation.confirm import confirm
 from src.exchange.client import fetch_ohlcv, fetch_warmup, make_exchange, symbol_for
 from src.exposure.manager import exposure_ok, record_signal
 from src.filters.filters import evaluate_market_filter, macro_pass
 from src.indicators.engine import add_indicators
-from src.risk.engine import calc_stop, calc_tp, find_resistance, position_size, risk_reward
+from src.paper.store import open_position, paper_enabled
+from src.risk.engine import calc_stop_method, find_resistance, calc_tp, position_size, risk_reward
 from src.setup.pullback import detect_pullback
 from src.setup.state import check_invalidation, get_state, in_cooldown, set_state
 
@@ -94,14 +96,18 @@ def evaluate_asset(asset: str, frames: dict, market_status: dict, conn, cfg: dic
     # --- Confirmation 15m (V1: only after fresh touch; state WATCHING required) ---
     if state["state"] not in ("WATCHING", "TOUCHED_EMA"):
         return "WATCHING"
-    confirmed, conf_reason = confirm_reversal(df_15m)
+    confirmed, conf_reason = confirm(
+        df_15m, cfg["confirmation"].get("method", "reversal"),
+        ema_value=float(df_4h.iloc[-1][f"ema{pb['ema']}"]),
+    )
     log.info("%s - 15m confirmation: %s (%s)", asset, "PASS" if confirmed else "WAIT", conf_reason)
     if not confirmed:
         return "WATCHING"
 
     entry = float(df_15m.iloc[-1]["close"])
     atr_4h = float(df_4h.iloc[-1]["atr"])
-    stop = calc_stop(state["pullback_low"] or pb["pullback_low"], atr_4h, cfg["risk"]["atr_multiplier"])
+    stop = calc_stop_method(cfg["risk"].get("stop_method", "structure_atr"), entry,
+                            state["pullback_low"] or pb["pullback_low"], atr_4h, cfg["risk"]["atr_multiplier"])
     resistance = find_resistance(df_4h, cfg["target"]["resistance_lookback_4h"])
     tp, target_class = calc_tp(entry, resistance, cfg)
     ret_pct = (tp - entry) / entry * 100
@@ -155,8 +161,38 @@ def run_cycle(cfg: dict, conn, exchange=None) -> dict[str, str]:
     for asset in cfg["assets"]:
         try:
             frames = frames_cache.get(asset) or load_asset_frames(exchange, asset, cfg)
-            results[asset] = evaluate_asset(asset, frames, market_status, conn, cfg)
+            res = evaluate_asset(asset, frames, market_status, conn, cfg)
+            results[asset] = res
+            if res == "SIGNAL" and paper_enabled(cfg):
+                _open_paper_position(conn, asset, market_status, cfg)
         except Exception as e:
             log.error("%s - cycle error: %s", asset, e)
             results[asset] = "ERROR"
     return results
+
+
+def _open_paper_position(conn, asset: str, market_status: dict, cfg: dict) -> None:
+    """V4: every SIGNAL opens a virtual position (fire-and-forget). Dedup: 1 OPEN per asset."""
+    now_ms = int(time.time() * 1000)
+    st = get_state(conn, asset)
+    entry_eff = apply_entry(st["entry"], cfg)
+    balance = cfg["risk"]["simulated_account_balance"]
+    pos_usd, cap_risk = position_size(
+        balance, cfg["risk"]["max_risk_per_trade_percent"], st["entry"], st["stop"])
+    pid = open_position(
+        conn, asset,
+        open_ts=now_ms, ema=st["ema"], entry=entry_eff, stop=st["stop"], tp=st["tp"],
+        rr=st["rr"], position_usd=pos_usd, capital_risk=cap_risk,
+        stop_method=cfg["risk"].get("stop_method", "structure_atr"),
+        confirm_method=cfg["confirmation"].get("method", "reversal"),
+        btc_bullish=int(market_status["bullish"]),
+    )
+    if pid is None:
+        log.info("%s - paper position already OPEN, skip", asset)
+        return
+    log.info("%s - PAPER OPEN #%d @ %.2f", asset, pid, entry_eff)
+    tg = cfg["telegram"]
+    text = format_paper_open(asset, entry_eff, st["stop"], st["tp"], st["rr"], pos_usd)
+    if not send_telegram(tg["bot_token"], tg["chat_id"], text,
+                         dry_run=cfg["system"].get("dry_run", True)):
+        log.warning("%s - paper open alert NOT sent", asset)

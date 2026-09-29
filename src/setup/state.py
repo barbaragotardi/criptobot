@@ -30,6 +30,65 @@ CREATE TABLE IF NOT EXISTS daily_signals (
   day TEXT PRIMARY KEY,
   count INTEGER DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS paper_positions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  asset TEXT NOT NULL,
+  open_ts INTEGER NOT NULL,
+  ema INTEGER,
+  entry REAL NOT NULL,
+  stop REAL NOT NULL,
+  tp REAL NOT NULL,
+  rr REAL,
+  position_usd REAL,
+  capital_risk REAL,
+  stop_method TEXT,
+  confirm_method TEXT,
+  btc_bullish INTEGER,
+  status TEXT NOT NULL DEFAULT 'OPEN',
+  exit_ts INTEGER,
+  exit_price REAL,
+  exit_reason TEXT,
+  pnl_pct REAL,
+  pnl_usd REAL
+);
+CREATE INDEX IF NOT EXISTS idx_paper_status ON paper_positions(status);
+CREATE TABLE IF NOT EXISTS portfolio_trades (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  asset TEXT NOT NULL,
+  side TEXT NOT NULL CHECK(side IN ('BUY','SELL')),
+  trade_ts INTEGER NOT NULL,
+  quantity REAL NOT NULL,
+  price REAL NOT NULL,
+  cost_usd REAL NOT NULL,
+  price_fallback INTEGER DEFAULT 0,
+  created_ts INTEGER NOT NULL,
+  telegram_message_id INTEGER,
+  alert5_sent INTEGER DEFAULT 0,
+  alert10_sent INTEGER DEFAULT 0,
+  remaining_qty REAL
+);
+CREATE TABLE IF NOT EXISTS portfolio_fifo_matches (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  asset TEXT NOT NULL,
+  buy_trade_id INTEGER NOT NULL,
+  sell_trade_id INTEGER NOT NULL,
+  qty REAL NOT NULL,
+  buy_price REAL NOT NULL,
+  sell_price REAL NOT NULL,
+  pnl_usd REAL NOT NULL,
+  pnl_pct REAL NOT NULL,
+  matched_ts INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS portfolio_alert_state (
+  asset TEXT NOT NULL,
+  side TEXT NOT NULL,
+  last_threshold_hit REAL DEFAULT 0,
+  PRIMARY KEY (asset, side)
+);
+CREATE TABLE IF NOT EXISTS telegram_offset (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  last_update_id INTEGER NOT NULL DEFAULT 0
+);
 """
 
 
@@ -37,7 +96,20 @@ def connect(db_path: str) -> sqlite3.Connection:
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.executescript(SCHEMA)
+    _migrate_portfolio_remaining_qty(conn)
     return conn
+
+
+def _migrate_portfolio_remaining_qty(conn: sqlite3.Connection) -> None:
+    """Backfill remaining_qty for DBs created before the FIFO feature."""
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(portfolio_trades)").fetchall()]
+    if "remaining_qty" not in cols:
+        conn.execute("ALTER TABLE portfolio_trades ADD COLUMN remaining_qty REAL")
+    conn.execute(
+        "UPDATE portfolio_trades SET remaining_qty = quantity "
+        "WHERE remaining_qty IS NULL"
+    )
+    conn.commit()
 
 
 def get_state(conn: sqlite3.Connection, asset: str) -> dict:

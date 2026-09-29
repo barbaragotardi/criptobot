@@ -111,6 +111,54 @@ poetry run python scripts/dry_run_once.py
   [INFO] BTC - 15m confirmation: WAIT (no_reversal)
   ```
 
+## Backtest (V2a)
+
+Replay do histórico através do mesmo pipeline de produção (`evaluate_asset` com relógio simulado), com saída simulada em candles 15m, taxa 0,1% por lado + slippage 0,05%.
+
+```bash
+poetry run python scripts/fetch_historical.py          # baixa cache parquet (1x)
+poetry run python scripts/backtest.py --assets LTC --start 2024-01-01 --end 2024-12-31
+poetry run python scripts/backtest.py --save /tmp/trades.json   # todos os ativos, histórico máximo
+```
+
+Saída: métricas da seção 31 do `project.md` (win rate, profit factor, drawdown, expectancy…) + breakdowns por ativo, ano e motivo de saída. Empate stop×TP no mesmo candle conta como STOP (conservador).
+
+> **Achado do primeiro backtest (todos os 11 ativos, 2023-03→2026-09): 8 trades** (2 TP, 6 STOP, profit factor 1.03, retorno −0.5% — amostra pequena demais para concluir qualquer coisa). Funil medido: confirmação 15m passa em ~28% dos candles em geral, mas quase nunca dentro das janelas de vigilância pós-pullback — e quando passa, o R/R≥2 com stop estrutural de 6×4H reprova a maioria. Ou seja: com os parâmetros atuais, o filtro combinado é seletivo a ponto de gerar pouquíssima amostra. Isso é exatamente o que o V2b (comparação de parâmetros) vai explorar; o engine está verificado de ponta a ponta (slicing as-of bit-idêntico ao ao vivo, saída/custos/métricas checados numericamente, consistência entry<tp/stop validada nos 8 trades).
+
+Limitações do V2a:
+
+- Histórico 15m da Binance só vai até ~2023-03 (retenção da API) — o replay começa dali, não do listing.
+- Exposure no backtest é por ativo (produção é portfolio-level) — raramente ligam; resultado tende a ser levemente otimista vs. produção.
+- Breakdowns por confirmação/stop-method têm 1 único grupo (só existe 1 variante implementada de cada).
+
+## V2b — Grid search, validação e teste (status: parado em achado)
+
+Infra pronta: `scripts/param_sweep.py` (grid no Dev, paralelo), `validate_candidate.py` (1 config em Validação), `sensitivity.py` (OAT), `final_test.py` (Teste, só via `config/chosen_config.yaml` registrado). Splits fixos: Dev 2023-03→2024-09 / Validação →2025-09 / Teste →2026-09.
+
+> **Resultado do grid (24 combinações, Dev, 4 ativos): todas com 2–4 trades — nenhuma atinge o mínimo de 10 para análise.** Ver `data/sweep_dev.csv`. Nem as combinações deliberadamente mais soltas (R/R 1.0, toque 2%) geram amostra. Sinais direcionais fracos (ex: `atr_only`+`reversal` = 0% win em 4/4; `ema_reclaim` com expectancy maior que `reversal`) existem, mas com n≤4 são ruído. **Decisão consciente: F7–F9 (validação/sensibilidade/teste final) não foram executados** — rodá-los sobre 2–4 trades seria teatro estatístico, não validação. Opções: (a) ampliar o grid ainda mais, (b) aceitar a baixa frequência como resultado, (c) revisar premissas da estratégia no `project.md`.
+
+> **Busca dirigida aos gargalos (V2b revisado) — também esgotada.** Funil medido no Dev completo (4 ativos, 18m, ver `data/funnel_dev.txt`): 69.962 toques → 29 confirmações (0,04%) → 25 rejeitadas no R/R + 1 no retorno mínimo → **4 sinais**. Alargar a janela de confirmação de 4h até 24h (`max_15m_candles`: 16/32/48/96) **não adicionou nenhum trade** — os mesmos 4. Apertar o stop (`atr_multiplier` 0.5/0.75) zerou o win rate; afrouxar (1.5) reduziu para 1 trade (`data/levers_dev.txt`). Conclusão: a restrição vinculante é a coincidência "pullback 4H + reversão 15m", não a janela nem a distância do stop. **F7–F9 seguem não executados**; V2b encerra aqui com o achado documentado, sem forçar validação sobre amostra vazia.
+
+> **Correção do teto de TP (pós-V2b).** Diagnóstico nas 24 rejeições por R/R: 21 bateram no teto artificial de 10% (`tp = min(resistance, entry×1.10)`), com resistência real mediana a 15,9% — o `project.md` §19 define 5–10% como *classificação*, não como teto. Removido o teto do cálculo (`calc_tp` usa só a resistência + teto de sanidade de 50%); a faixa virou só rótulo (`ACIMA DA FAIXA PREFERENCIAL` incluído) e flui automaticamente para o alerta do Telegram. Revalidação (`data/funnel_fixed.txt`): rejeições por R/R caíram 24→7, mas as confirmações continuam raras (12 em 18m) e os sinais continuam 4 — nem R/R 1.0/1.5 muda isso. **Teto real agora provado: ~12 confirmações/18m nos 4 ativos.** Próximo passo possível é revisar a lógica de entrada/confirmação (muda a identidade da estratégia) ou aceitar a raridade — decisão pendente.
+
+> **Rodada final — confirmação combinada + touch/ATR (`data/funnel_any.txt`, `data/levers_round2.txt`). Tópico encerrado.** `confirmation.method: any` (`reversal` OR `ema_reclaim`) multiplicou confirmações por 3,75× (12→45), mas os sinais continuaram 4 — as extras morrem no R/R/retorno. Com `any` de base: R/R 1.0/1.5 → 4 trades; touch 2%/3% → 4; `atr_k` 1.0/1.5 → 4. **Todos os parâmetros testados em 3 rodadas convergem para os mesmos ~4 sinais/18m** — a seletividade é estrutural (coincidência macro + pullback + R/R), não paramétrica. Decisão final: **default de produção mantido** (`reversal`, R/R 2.0, TP sem teto — a correção do teto fica por ser bug genuíno); V1 gera alertas raros (~1 por ativo a cada 4–5 meses nos majors); amostra insuficiente para validação estatística com a retenção 15m da Binance (~2023-03 em diante). F7–F9 (validação/sensibilidade/teste) ficam construídos e documentados para quando houver mais histórico acumulado em produção real.
+
+## Portfólio manual via Telegram
+
+Registre suas compras/vendas reais pelo Telegram e receba alertas de +5%/+10%:
+
+```text
+/compra BTC,14:30,0.05   → registra 0.05 BTC ao preço do candle 1m das 14:30
+/venda ETH,09:00,2       → idem para venda
+/extrato                 → lista todos os registros + médias ponderadas
+/extrato BTC             → filtra por ativo
+```
+
+- O preço é buscado na Binance no horário informado (fuso em `system.timezone`); se o candle ainda não fechou, usa o preço atual e avisa.
+- Alerta de compra dispara em **alta** de 5%/10% sobre a referência; de venda, em **queda** de 5%/10%. Vale para o preço médio ponderado e para cada registro individual.
+- **FIFO**: cada `/venda` abate os lotes de compra mais antigos primeiro (pelo horário informado) e a confirmação mostra o PnL realizado por lote. Venda maior que a posição aberta é rejeitada. O `/extrato` mostra quantidade ainda aberta por lote e o PnL realizado total.
+- Só aceita os ativos de `config.yaml` e mensagens do `TELEGRAM_CHAT_ID` configurado.
+
 ## Limitações conhecidas da V1
 
 - **Prioridade de exposição**: os limites (`max_open_signals: 3`) são preenchidos na ordem da lista de ativos — BTC/ETH/XRP ocupam as vagas de `WATCHING` primeiro. Ranking de setups por qualidade é tema da V3.

@@ -1,6 +1,7 @@
 """Entry point: continuous loop with polling on new closed 15m candle."""
 
 import logging
+import threading
 import time
 
 import ccxt
@@ -9,6 +10,9 @@ from src.config import load_config
 from src.engine.cycle import run_cycle
 from src.exchange.client import make_exchange, symbol_for
 from src.logging_config import setup_logging
+from src.paper.monitor import check_open_positions
+from src.portfolio.listener import run_listener
+from src.portfolio.monitor import check_portfolio_alerts
 from src.setup.state import connect
 
 log = logging.getLogger(__name__)
@@ -37,6 +41,10 @@ def main() -> None:
     conn = connect(cfg["system"]["db_path"])
     exchange = make_exchange()
     log.info("robit starting (dry_run=%s)", cfg["system"].get("dry_run", True))
+    if cfg.get("portfolio", {}).get("enabled", True):
+        t = threading.Thread(target=run_listener, args=(cfg, None),
+                             daemon=True, name="telegram-listener")
+        t.start()
     last_ts = None
     while True:
         last_ts = wait_for_new_candle(exchange, cfg, last_ts)
@@ -44,6 +52,19 @@ def main() -> None:
         try:
             results = run_cycle(cfg, conn, exchange)
             log.info("Cycle done: %s", results)
+            try:
+                closed = check_open_positions(conn, exchange, cfg)
+                if closed:
+                    log.info("Paper monitor closed: %s",
+                             [(c["asset"], c["exit_reason"]) for c in closed])
+            except Exception as e:
+                log.error("Paper monitor failed: %s", e)
+            try:
+                alerts = check_portfolio_alerts(conn, exchange, cfg)
+                if alerts:
+                    log.info("Portfolio alerts: %s", alerts)
+            except Exception as e:
+                log.error("Portfolio monitor failed: %s", e)
         except Exception as e:
             log.error("Cycle failed: %s", e)
             time.sleep(60)
