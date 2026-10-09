@@ -88,11 +88,23 @@ INVALIDATED | TIMEOUT | COOLDOWN | SEND_FAILED | ERROR` (detalhes no README).
 ```
 main.py (thread daemon telegram-listener) → run_listener (getUpdates long-poll)
   → handle_text: /compra MOEDA,HH:MM,QTD | /venda ... | /extrato [MOEDA]
-src/portfolio/parser.py    parse_command + validate_asset (só assets do config)
+                 | /historico [MOEDA] | /edit ID,CAMPO,VALOR | /delete ID
+src/portfolio/parser.py    parse_command + parse_edit + parse_delete + validate_asset (só assets do config)
 src/portfolio/pricing.py   price_at: candle 1m fechado ≤ horário (since); fallback = preço atual
 src/portfolio/store.py     portfolio_trades (ledger; remaining_qty por lote BUY) + weighted_avg
-                            (BUY: só lotes abertos) + consume_fifo + realized_pnl;
+                            (BUY: só lotes abertos) + consume_fifo(commit flag) + realized_pnl
+                            + get/update/delete_trade + recompute_fifo (rebuild por ativo);
                             portfolio_fifo_matches (1 linha por lote abatido: qty, preços, PnL)
+src/portfolio/monitor.py   check_portfolio_alerts: a cada ciclo 15m, compara preço atual
+                            com média ponderada (BUY: alta, só posição aberta; SELL: queda)
+                            e com cada trade (lote BUY 100% vendido não alerta);
+                            limiares 5%/10% com histerese (portfolio_alert_state; flags por trade)
+Regra: /venda maior que a posição aberta é rejeitada (nada é gravado).
+Regra: /edit e /delete recalculam o FIFO do ativo do zero (recompute_fifo); se alguma
+       venda ficaria sem lote suficiente, a operação sofre rollback total (ValueError).
+/extrato = só lotes BUY em aberto + % vs cotação atual. /historico = vendas + PnL realizado.
+src/alerts/telegram.py     + get_updates + format_trade_confirmation/format_portfolio_alert/format_extrato
+                            + format_historico/format_edit_confirmation/format_delete_confirmation
 src/portfolio/monitor.py   check_portfolio_alerts: a cada ciclo 15m, compara preço atual
                             com média ponderada (BUY: alta, só posição aberta; SELL: queda)
                             e com cada trade (lote BUY 100% vendido não alerta);

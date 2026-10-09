@@ -86,16 +86,21 @@ def get_updates(bot_token: str, offset: int = 0, timeout: int = 30) -> list[dict
     return r.json().get("result", [])
 
 
+def _trend_emoji(pct: float) -> str:
+    return "🟢" if pct >= 0 else "🔴"
+
+
 def format_trade_confirmation(side: str, asset: str, qty: float, price: float,
                               cost: float, fallback: bool) -> str:
     op = "COMPRA" if side == "BUY" else "VENDA"
-    extra = "\n⚠️ Preço atual (candle do horário ainda não fechado)." if fallback else ""
+    emoji = "🛒" if side == "BUY" else "💸"
+    extra = "\n\n⚠️ Preço atual (candle do horário ainda não fechado)." if fallback else ""
     return (
         f"✅ {op} REGISTRADA\n"
-        f"\nAtivo: {asset}\n"
-        f"Quantidade: {qty:g}\n"
-        f"Preço: ${price:,.2f}\n"
-        f"Valor: ${cost:,.2f}\n"
+        f"\n{emoji} Ativo: {asset}\n"
+        f"🔢 Quantidade: {qty:g}\n"
+        f"💲 Preço: ${price:,.2f}\n"
+        f"💰 Valor: ${cost:,.2f}"
         f"{extra}"
     )
 
@@ -108,60 +113,111 @@ def format_portfolio_alert(asset: str, side: str, ref_price: float,
     emoji = "🚀" if side == "BUY" else "📉"
     return (
         f"{emoji} {asset} {direction} {pct:.1f}% (meta {threshold:.0f}%)\n"
-        f"\n{ref_label}: ${ref_price:,.2f}\n"
-        f"Preço atual: ${current:,.2f}\n"
+        f"\n📊 {ref_label}: ${ref_price:,.2f}\n"
+        f"💲 Preço atual: ${current:,.2f}\n"
     )
 
 
 def format_sell_confirmation(asset: str, qty: float, price: float,
                              cost: float, fallback: bool,
                              matches: list[dict]) -> str:
-    extra = "\n⚠️ Preço atual (candle do horário ainda não fechado)." if fallback else ""
+    extra = "\n\n⚠️ Preço atual (candle do horário ainda não fechado)." if fallback else ""
     lines = [
         "✅ VENDA REGISTRADA",
-        f"\nAtivo: {asset}\n"
-        f"Quantidade: {qty:g}\n"
-        f"Preço: ${price:,.2f}\n"
-        f"Valor: ${cost:,.2f}\n"
+        f"\n💸 Ativo: {asset}\n"
+        f"🔢 Quantidade: {qty:g}\n"
+        f"💲 Preço: ${price:,.2f}\n"
+        f"💰 Valor: ${cost:,.2f}"
         f"{extra}",
-        "\nLotes abatidos (FIFO):",
+        "\n📦 Lotes abatidos (FIFO):",
     ]
     total_pnl = 0.0
     for m in matches:
         total_pnl += m["pnl_usd"]
         lines.append(
-            f"- {m['qty']:g} @ ${m['buy_price']:,.2f} "
+            f"{_trend_emoji(m['pnl_pct'])} {m['qty']:g} @ ${m['buy_price']:,.2f} "
             f"→ PnL: ${m['pnl_usd']:+,.2f} ({m['pnl_pct']:+.1f}%)"
         )
-    lines.append(f"\nPnL realizado nesta venda: ${total_pnl:+,.2f}")
+    lines.append(f"\n🏁 PnL realizado nesta venda: ${total_pnl:+,.2f} {_trend_emoji(total_pnl)}")
     return "\n".join(lines)
 
 
-def format_extrato(rows: list[dict], avgs: dict, prices: dict,
-                   realized: dict | None = None) -> str:
-    realized = realized or {}
-    lines = ["📋 EXTRATO"]
+def format_extrato(rows: list[dict], avgs: dict, prices: dict) -> str:
+    """Open BUY positions with % variation vs current price."""
+    lines = ["📋 EXTRATO · posições em aberto"]
     for asset in sorted({r["asset"] for r in rows}):
-        lines.append(f"\n— {asset} (atual: ${prices.get(asset, 0):,.2f}) —")
+        current = prices.get(asset, 0)
+        lines.append(f"\n🪙 {asset} — atual: ${current:,.2f}")
         for r in [x for x in rows if x["asset"] == asset]:
-            op = "COMPRA" if r["side"] == "BUY" else "VENDA"
             line = (
-                f"#{r['id']} {op} {r['quantity']:g} @ ${r['price']:,.2f} "
+                f"#{r['id']} COMPRA {r['quantity']:g} @ ${r['price']:,.2f} "
                 f"(${r['cost_usd']:,.2f})"
             )
-            if r["side"] == "BUY":
-                line += f" (aberto: {r.get('remaining_qty', r['quantity']):g})"
+            if current:
+                pct = (current - r["price"]) / r["price"] * 100
+                line += f" {_trend_emoji(pct)} ({pct:+.1f}% vs atual)"
             lines.append(line)
-        for side in ("BUY", "SELL"):
-            key = (asset, side)
-            if key in avgs:
-                avg, qty = avgs[key]
-                label = "Média compra" if side == "BUY" else "Média venda"
-                lines.append(f"{label}: ${avg:,.2f} (qtd total {qty:g})")
+        key = (asset, "BUY")
+        if key in avgs:
+            avg, qty = avgs[key]
+            suffix = ""
+            if current:
+                pct = (current - avg) / avg * 100
+                suffix = (f" | Posição: ${qty * current:,.2f} "
+                          f"({_trend_emoji(pct)} {pct:+.1f}%)")
+            lines.append(f"📊 Média compra: ${avg:,.2f} (qtd aberta {qty:g}){suffix}")
+    return "\n".join(lines)
+
+
+def format_historico(rows: list[dict], matches_by_sell: dict,
+                     realized: dict | None = None) -> str:
+    """Realized sales with per-lot PnL."""
+    realized = realized or {}
+    if not rows:
+        return "📜 HISTÓRICO · vendas realizadas\n\n📭 Nenhuma venda registrada."
+    lines = ["📜 HISTÓRICO · vendas realizadas"]
+    for asset in sorted({r["asset"] for r in rows}):
+        lines.append(f"\n💰 {asset}")
+        for r in [x for x in rows if x["asset"] == asset]:
+            sell_matches = matches_by_sell.get(r["id"], [])
+            sell_pnl = sum(m["pnl_usd"] for m in sell_matches)
+            lines.append(
+                f"#{r['id']} VENDA {r['quantity']:g} @ ${r['price']:,.2f} "
+                f"(${r['cost_usd']:,.2f}) {_trend_emoji(sell_pnl)}"
+            )
+            for m in sell_matches:
+                lines.append(
+                    f"  ↳ lote #{m['buy_trade_id']}: {m['qty']:g} "
+                    f"@ ${m['buy_price']:,.2f} "
+                    f"→ PnL: ${m['pnl_usd']:+,.2f} ({m['pnl_pct']:+.1f}%) "
+                    f"{_trend_emoji(m['pnl_pct'])}"
+                )
         if asset in realized:
             pnl, matched = realized[asset]
-            lines.append(f"PnL realizado: ${pnl:+,.2f} (qtd vendida {matched:g})")
+            lines.append(f"🏁 PnL realizado: ${pnl:+,.2f} (qtd vendida {matched:g}) "
+                         f"{_trend_emoji(pnl)}")
     return "\n".join(lines)
+
+
+def format_edit_confirmation(trade_id: int, asset: str, side: str,
+                             field_label: str, old_val: str, new_val: str) -> str:
+    op = "COMPRA" if side == "BUY" else "VENDA"
+    return (
+        "✏️ REGISTRO EDITADO\n"
+        f"\n🪙 #{trade_id} {op} {asset}\n"
+        f"🔄 {field_label}: {old_val} → {new_val}\n"
+        "\n📦 FIFO recalculado para o ativo."
+    )
+
+
+def format_delete_confirmation(trade: dict) -> str:
+    op = "COMPRA" if trade["side"] == "BUY" else "VENDA"
+    return (
+        "🗑️ REGISTRO APAGADO\n"
+        f"\n🪙 #{trade['id']} {op} {trade['quantity']:g} {trade['asset']} "
+        f"@ ${trade['price']:,.2f}\n"
+        "\n📦 FIFO recalculado para o ativo."
+    )
 
 
 def send_telegram(bot_token: str, chat_id: str, text: str, dry_run: bool = True) -> bool:

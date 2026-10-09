@@ -150,13 +150,20 @@ Registre suas compras/vendas reais pelo Telegram e receba alertas de +5%/+10%:
 ```text
 /compra BTC,14:30,0.05   → registra 0.05 BTC ao preço do candle 1m das 14:30
 /venda ETH,09:00,2       → idem para venda
-/extrato                 → lista todos os registros + médias ponderadas
+/extrato                 → posições de compra em aberto + % vs cotação atual
 /extrato BTC             → filtra por ativo
+/historico               → vendas realizadas com lucro/perda ($ e %)
+/historico BTC            → filtra por ativo
+/edit 3,qtd,0.1          → altera a quantidade do registro #3
+/edit 3,preco,65000      → altera o preço do registro #3
+/edit 3,hora,14:30       → altera o horário do registro #3 (recalcula o preço)
+/delete 3                → apaga o registro #3
 ```
 
 - O preço é buscado na Binance no horário informado (fuso em `system.timezone`); se o candle ainda não fechou, usa o preço atual e avisa.
 - Alerta de compra dispara em **alta** de 5%/10% sobre a referência; de venda, em **queda** de 5%/10%. Vale para o preço médio ponderado e para cada registro individual.
-- **FIFO**: cada `/venda` abate os lotes de compra mais antigos primeiro (pelo horário informado) e a confirmação mostra o PnL realizado por lote. Venda maior que a posição aberta é rejeitada. O `/extrato` mostra quantidade ainda aberta por lote e o PnL realizado total.
+- **FIFO**: cada `/venda` abate os lotes de compra mais antigos primeiro (pelo horário informado) e a confirmação mostra o PnL realizado por lote. Venda maior que a posição aberta é rejeitada.
+- **Edição/exclusão**: `/edit` e `/delete` recalculam o FIFO do ativo do zero. Se a operação deixaria alguma venda sem lote de compra suficiente para abater, ela é **rejeitada** e nada é alterado. Trocar o ativo ou o tipo (compra/venda) não é suportado — apague e registre de novo. Editar um registro antigo pode mudar retroativamente o PnL de vendas posteriores do mesmo ativo.
 - Só aceita os ativos de `config.yaml` e mensagens do `TELEGRAM_CHAT_ID` configurado.
 
 ## Limitações conhecidas da V1

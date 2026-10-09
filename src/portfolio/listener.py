@@ -1,24 +1,36 @@
-"""Telegram inbound listener: long-poll getUpdates, dispatch /compra /venda /extrato."""
+"""Telegram inbound listener: long-poll getUpdates, dispatch portfolio commands."""
 
 import logging
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from src.alerts.telegram import (
+    format_delete_confirmation,
+    format_edit_confirmation,
     format_extrato,
+    format_historico,
     format_sell_confirmation,
     format_trade_confirmation,
     get_updates,
     send_telegram,
 )
 from src.exchange.client import make_exchange, symbol_for
-from src.portfolio.parser import parse_command, validate_asset
+from src.portfolio.parser import parse_command, parse_delete, parse_edit, validate_asset
 from src.portfolio.pricing import price_at
 from src.portfolio.store import (
     consume_fifo,
+    delete_trade,
+    get_trade,
     list_trades,
+    matches_for_asset,
     open_buy_qty,
     realized_pnl,
+    recompute_fifo,
     record_trade,
+    update_trade_price,
+    update_trade_qty,
+    update_trade_time,
     weighted_avg,
 )
 from src.setup.state import connect as connect_db
@@ -63,22 +75,79 @@ def handle_text(text: str, message_id: int, conn, exchange, cfg) -> str:
         asset = parts[1].upper() if len(parts) > 1 else None
         if asset:
             validate_asset(asset, cfg)
-        rows = list_trades(conn, asset)
+        rows = [r for r in list_trades(conn, asset)
+                if r["side"] == "BUY" and (r.get("remaining_qty") or 0) > 0]
         if not rows:
-            return "📋 EXTRATO\n\nNenhum registro ainda."
+            return "📋 EXTRATO · posições em aberto\n\n📭 Nenhuma posição em aberto."
         assets = sorted({r["asset"] for r in rows})
         avgs = {}
+        for a in assets:
+            avg, qty = weighted_avg(conn, a, "BUY")
+            if qty:
+                avgs[(a, "BUY")] = (avg, qty)
+        prices = current_prices(conn, exchange, cfg, assets)
+        return format_extrato(rows, avgs, prices)
+
+    if cmd.lower().startswith("/historico"):
+        parts = cmd.split()
+        asset = parts[1].upper() if len(parts) > 1 else None
+        if asset:
+            validate_asset(asset, cfg)
+        rows = [r for r in list_trades(conn, asset) if r["side"] == "SELL"]
+        if not rows:
+            return "📜 HISTÓRICO · vendas realizadas\n\n📭 Nenhuma venda registrada."
+        assets = sorted({r["asset"] for r in rows})
+        matches_by_sell: dict = {}
         realized = {}
         for a in assets:
-            for side in ("BUY", "SELL"):
-                avg, qty = weighted_avg(conn, a, side)
-                if qty:
-                    avgs[(a, side)] = (avg, qty)
+            for m in matches_for_asset(conn, a):
+                matches_by_sell.setdefault(m["sell_trade_id"], []).append(m)
             pnl, matched = realized_pnl(conn, a)
             if matched:
                 realized[a] = (pnl, matched)
-        prices = current_prices(conn, exchange, cfg, assets)
-        return format_extrato(rows, avgs, prices, realized)
+        return format_historico(rows, matches_by_sell, realized)
+
+    if cmd.lower().startswith("/edit"):
+        trade_id, field, raw = parse_edit(cmd)
+        tr = get_trade(conn, trade_id)
+        if tr is None:
+            raise ValueError(f"Registro #{trade_id} não encontrado.")
+        if field == "QTY":
+            new_qty = float(raw.replace(",", "."))
+            old = f"{tr['quantity']:g}"
+            update_trade_qty(conn, trade_id, new_qty, commit=False)
+            recompute_fifo(conn, tr["asset"])
+            return format_edit_confirmation(
+                trade_id, tr["asset"], tr["side"], "Quantidade", old, f"{new_qty:g}")
+        if field == "PRICE":
+            new_price = float(raw.replace(",", "."))
+            old = f"${tr['price']:,.2f}"
+            update_trade_price(conn, trade_id, new_price, commit=False)
+            recompute_fifo(conn, tr["asset"])
+            return format_edit_confirmation(
+                trade_id, tr["asset"], tr["side"], "Preço", old, f"${new_price:,.2f}")
+        quote = cfg["system"]["quote_currency"]
+        price, trade_ts_ms, fallback = price_at(
+            exchange, symbol_for(tr["asset"], quote), raw, cfg)
+        tz = ZoneInfo(cfg["system"].get("timezone", "America/Sao_Paulo"))
+        old_hhmm = datetime.fromtimestamp(tr["trade_ts"] / 1000, tz).strftime("%H:%M")
+        update_trade_time(conn, trade_id, trade_ts_ms, price, fallback, commit=False)
+        recompute_fifo(conn, tr["asset"])
+        reply = format_edit_confirmation(
+            trade_id, tr["asset"], tr["side"], "Horário",
+            old_hhmm, f"{raw} (preço ${price:,.2f})")
+        if fallback:
+            reply += "\n⚠️ Preço atual (candle do horário ainda não fechado)."
+        return reply
+
+    if cmd.lower().startswith("/delete"):
+        trade_id = parse_delete(cmd)
+        tr = get_trade(conn, trade_id)
+        if tr is None:
+            raise ValueError(f"Registro #{trade_id} não encontrado.")
+        delete_trade(conn, trade_id, commit=False)
+        recompute_fifo(conn, tr["asset"])
+        return format_delete_confirmation(tr)
 
     side, asset, hhmm, qty = parse_command(cmd)
     validate_asset(asset, cfg)

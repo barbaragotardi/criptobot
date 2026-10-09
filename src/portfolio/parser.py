@@ -10,6 +10,13 @@ COMMAND_RE = re.compile(
     re.IGNORECASE,
 )
 
+EDIT_RE = re.compile(
+    r"^/edit\s+(\d+)\s*,\s*([A-Za-z\xc0-\xff]+)\s*,\s*(\S+)\s*$",
+    re.IGNORECASE,
+)
+
+DELETE_RE = re.compile(r"^/delete\s+(\d+)\s*$", re.IGNORECASE)
+
 
 def parse_command(text: str) -> tuple[str, str, str, float]:
     """Return (side, asset, hhmm, qty). side is 'BUY' or 'SELL'. Raises ValueError."""
@@ -38,3 +45,53 @@ def validate_asset(asset: str, cfg: dict) -> None:
             f"Moeda {asset} não monitorada. "
             f"Válidas: {', '.join(cfg['assets'])}."
         )
+
+
+def parse_edit(text: str) -> tuple[int, str, str]:
+    """Return (trade_id, field, raw_value). field is 'QTY', 'PRICE' or 'TIME'.
+
+    Value validation is per-field (numeric > 0 for QTY/PRICE, HH:MM for TIME).
+    Raises ValueError.
+    """
+    m = EDIT_RE.match((text or "").strip())
+    if not m:
+        raise ValueError(
+            "Formato inválido. Use: /edit ID,CAMPO,NOVO_VALOR "
+            "(ex: /edit 3,qtd,0.1 | /edit 3,preco,65000 | /edit 3,hora,14:30)"
+        )
+    field = m.group(2).lower().replace("ç", "c").replace("ê", "e")
+    if field in ("qtd", "quantidade", "qty", "quantity"):
+        norm = "QTY"
+    elif field in ("preco", "price", "valor"):
+        norm = "PRICE"
+    elif field in ("hora", "horario", "time"):
+        norm = "TIME"
+    else:
+        raise ValueError(
+            f"Campo inválido: {m.group(2)}. Use qtd, preco ou hora."
+        )
+    raw = m.group(3)
+    if norm in ("QTY", "PRICE"):
+        try:
+            val = float(raw.replace(",", "."))
+        except ValueError:
+            raise ValueError(f"Valor inválido para {norm.lower()}: {raw}.")
+        if val <= 0:
+            raise ValueError("Valor deve ser maior que zero.")
+    else:
+        parts = raw.split(":")
+        if len(parts) != 2 or not parts[0].isdigit() or not parts[1].isdigit():
+            raise ValueError(f"Horário inválido: {raw}. Use HH:MM.")
+        hh, mm = int(parts[0]), int(parts[1])
+        if hh > 23 or mm > 59:
+            raise ValueError(f"Horário inválido: {raw}.")
+        raw = f"{hh:02d}:{mm:02d}"
+    return int(m.group(1)), norm, raw
+
+
+def parse_delete(text: str) -> int:
+    """Return trade_id. Raises ValueError."""
+    m = DELETE_RE.match((text or "").strip())
+    if not m:
+        raise ValueError("Formato inválido. Use: /delete ID (ex: /delete 3)")
+    return int(m.group(1))

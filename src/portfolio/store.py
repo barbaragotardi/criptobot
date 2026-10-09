@@ -66,7 +66,7 @@ def open_buy_qty(conn, asset: str) -> float:
 
 
 def consume_fifo(conn, asset: str, sell_trade_id: int, sell_qty: float,
-                 sell_price: float) -> list[dict]:
+                 sell_price: float, commit: bool = True) -> list[dict]:
     """Match a SELL against open BUY lots (oldest trade_ts first).
 
     Caller must have validated sell_qty <= open_buy_qty. Raises RuntimeError
@@ -101,7 +101,8 @@ def consume_fifo(conn, asset: str, sell_trade_id: int, sell_qty: float,
                         "buy_price": buy_price, "pnl_usd": pnl,
                         "pnl_pct": (sell_price - buy_price) / buy_price * 100})
         left -= take
-    conn.commit()
+    if commit:
+        conn.commit()
     if left > 1e-9:
         raise RuntimeError(
             f"FIFO underflow for {asset}: {left:g} unmatched "
@@ -125,3 +126,87 @@ def realized_pnl(conn, asset: str) -> tuple[float, float]:
 def distinct_assets(conn) -> list[str]:
     rows = conn.execute("SELECT DISTINCT asset FROM portfolio_trades").fetchall()
     return [r[0] for r in rows]
+
+
+def matches_for_asset(conn, asset: str) -> list[dict]:
+    cols = [c[0] for c in conn.execute("SELECT * FROM portfolio_fifo_matches LIMIT 0").description]
+    rows = conn.execute(
+        "SELECT * FROM portfolio_fifo_matches WHERE asset=? ORDER BY sell_trade_id, id",
+        (asset,),
+    ).fetchall()
+    return [dict(zip(cols, r)) for r in rows]
+
+
+def get_trade(conn, trade_id: int) -> dict | None:
+    cols = [c[0] for c in conn.execute("SELECT * FROM portfolio_trades LIMIT 0").description]
+    row = conn.execute("SELECT * FROM portfolio_trades WHERE id=?", (trade_id,)).fetchone()
+    return dict(zip(cols, row)) if row else None
+
+
+def delete_trade(conn, trade_id: int, commit: bool = True) -> None:
+    conn.execute("DELETE FROM portfolio_trades WHERE id=?", (trade_id,))
+    if commit:
+        conn.commit()
+
+
+def update_trade_qty(conn, trade_id: int, qty: float, commit: bool = True) -> None:
+    conn.execute(
+        "UPDATE portfolio_trades SET quantity=?, cost_usd=?*price, "
+        "alert5_sent=0, alert10_sent=0 WHERE id=?",
+        (qty, qty, trade_id),
+    )
+    if commit:
+        conn.commit()
+
+
+def update_trade_price(conn, trade_id: int, price: float, commit: bool = True) -> None:
+    conn.execute(
+        "UPDATE portfolio_trades SET price=?, cost_usd=quantity*?, "
+        "price_fallback=0, alert5_sent=0, alert10_sent=0 WHERE id=?",
+        (price, price, trade_id),
+    )
+    if commit:
+        conn.commit()
+
+
+def update_trade_time(conn, trade_id: int, trade_ts_ms: int, price: float,
+                      fallback: bool, commit: bool = True) -> None:
+    conn.execute(
+        "UPDATE portfolio_trades SET trade_ts=?, price=?, cost_usd=quantity*?, "
+        "price_fallback=?, alert5_sent=0, alert10_sent=0 WHERE id=?",
+        (trade_ts_ms, price, price, int(fallback), trade_id),
+    )
+    if commit:
+        conn.commit()
+
+
+def recompute_fifo(conn, asset: str, commit: bool = True) -> None:
+    """Rebuild FIFO matches for asset from scratch.
+
+    Deletes existing matches, resets remaining_qty on BUY lots, and replays
+    all SELLs in chronological order. On underflow, rolls back everything
+    and raises ValueError (user-facing).
+    """
+    sells = conn.execute(
+        "SELECT id, quantity, price FROM portfolio_trades "
+        "WHERE asset=? AND side='SELL' ORDER BY trade_ts ASC, id ASC",
+        (asset,),
+    ).fetchall()
+    conn.execute("DELETE FROM portfolio_fifo_matches WHERE asset=?", (asset,))
+    conn.execute(
+        "UPDATE portfolio_trades SET remaining_qty=quantity "
+        "WHERE asset=? AND side='BUY'",
+        (asset,),
+    )
+    try:
+        for sell_id, sell_qty, sell_price in sells:
+            consume_fifo(conn, asset, sell_id, sell_qty, sell_price, commit=False)
+    except RuntimeError:
+        conn.rollback()
+        raise ValueError(
+            f"Operação rejeitada: {asset} ficaria com venda sem lote de "
+            "compra suficiente para abater. Nada foi alterado."
+        )
+    if commit:
+        conn.commit()
+    log.info("FIFO recompute %s: %d sell(s) replayed", asset, len(sells))
