@@ -6,14 +6,13 @@ import time
 
 import ccxt
 
-from src.config import load_config
-from src.engine.cycle import run_cycle
+from src.config import load_config, setup_logging
+from src.strategy.cycle import run_cycle
 from src.exchange.client import make_exchange, symbol_for
-from src.logging_config import setup_logging
 from src.paper.monitor import check_open_positions
 from src.portfolio.listener import run_listener
 from src.portfolio.monitor import check_portfolio_alerts
-from src.setup.state import connect
+from src.strategy.state import connect
 
 log = logging.getLogger(__name__)
 

@@ -5,10 +5,9 @@ import sys
 
 sys.path.insert(0, ".")
 
-from src.config import load_config
-from src.engine.cycle import run_cycle
-from src.logging_config import setup_logging
-from src.setup.state import connect
+from src.config import load_config, setup_logging
+from src.strategy.cycle import run_cycle
+from src.strategy.state import connect
 
 setup_logging()
 logging.getLogger().setLevel(logging.INFO)

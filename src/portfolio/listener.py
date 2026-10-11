@@ -44,7 +44,7 @@ from src.portfolio.store import (
     update_trade_time,
     weighted_avg,
 )
-from src.setup.state import connect as connect_db
+from src.strategy.state import connect as connect_db
 
 log = logging.getLogger(__name__)
 

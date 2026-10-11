@@ -1,8 +1,6 @@
 """V4 paper trading ledger: virtual OPEN/CLOSED positions in SQLite.
 
-Column names mirror the backtest trade dict (open_ts in ms, exit_reason,
-pnl_pct, rr) so metrics.summarize/breakdown apply unchanged.
-Entry is stored cost-adjusted (apply_entry), same as the backtest.
+Entry is stored cost-adjusted (apply_entry).
 """
 
 import sqlite3

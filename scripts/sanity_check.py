@@ -4,7 +4,7 @@ import sys
 
 sys.path.insert(0, ".")
 
-from src.risk.engine import calc_stop, calc_tp, position_size, risk_reward
+from src.strategy.risk import calc_stop, calc_tp, position_size, risk_reward
 
 failures = []
 

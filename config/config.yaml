@@ -29,7 +29,6 @@ data:
     15m: 700
 
 backtest:
-  data_dir: data/historical
   fee_percent: 0.1
   slippage_percent: 0.05
 

@@ -1,13 +1,13 @@
 """V4 exit monitor: checks OPEN paper positions against the latest closed 15m candle.
 
-Same rule as backtest exit_simulator (same-candle stop+TP -> STOP), but
-incremental: one closed candle per cycle instead of a full history walk.
+Same-candle stop+TP counts as STOP (conservative). Incremental: one closed
+candle per cycle instead of a full history walk.
 """
 
 import logging
 
 from src.alerts.telegram import format_paper_close, send_telegram
-from src.backtest.costs import apply_exit
+from src.costs import apply_exit
 from src.exchange.client import TF_MS, fetch_ohlcv, symbol_for
 from src.paper.store import close_position, list_open, paper_enabled
 
