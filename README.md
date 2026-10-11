@@ -150,6 +150,10 @@ Registre suas compras/vendas reais pelo Telegram e receba alertas de +5%/+10%:
 ```text
 /compra BTC,14:30,0.05   → registra 0.05 BTC ao preço do candle 1m das 14:30
 /venda ETH,09:00,2       → idem para venda
+/troca NEAR,ETH,13:50,70.5 → troca 70.5 NEAR por ETH (qtd de ETH calculada pela cotação)
+/old_compra BTC,30-12-2025-14:54,0.1 → compra antiga (com data completa)
+/old_venda BTC,15-01-2026-10:00,0.05 → venda antiga
+/old_troca NEAR,ETH,15-01-2026-13:50,70.5 → troca antiga
 /extrato                 → posições de compra em aberto + % vs cotação atual
 /extrato BTC             → filtra por ativo
 /historico               → vendas realizadas com lucro/perda ($ e %)
@@ -157,13 +161,17 @@ Registre suas compras/vendas reais pelo Telegram e receba alertas de +5%/+10%:
 /edit 3,qtd,0.1          → altera a quantidade do registro #3
 /edit 3,preco,65000      → altera o preço do registro #3
 /edit 3,hora,14:30       → altera o horário do registro #3 (recalcula o preço)
+/edit 3,hora,30-12-2025-14:54 → idem com data completa (para registros antigos)
 /delete 3                → apaga o registro #3
+/help                    → lista todos os comandos com exemplos
 ```
 
 - O preço é buscado na Binance no horário informado (fuso em `system.timezone`); se o candle ainda não fechou, usa o preço atual e avisa.
 - Alerta de compra dispara em **alta** de 5%/10% sobre a referência; de venda, em **queda** de 5%/10%. Vale para o preço médio ponderado e para cada registro individual.
 - **FIFO**: cada `/venda` abate os lotes de compra mais antigos primeiro (pelo horário informado) e a confirmação mostra o PnL realizado por lote. Venda maior que a posição aberta é rejeitada.
 - **Edição/exclusão**: `/edit` e `/delete` recalculam o FIFO do ativo do zero. Se a operação deixaria alguma venda sem lote de compra suficiente para abater, ela é **rejeitada** e nada é alterado. Trocar o ativo ou o tipo (compra/venda) não é suportado — apague e registre de novo. Editar um registro antigo pode mudar retroativamente o PnL de vendas posteriores do mesmo ativo.
+- **Troca**: `/troca` registra uma venda do ativo de origem (abatendo FIFO e realizando PnL) + uma compra do ativo de destino. A quantidade recebida é calculada pela cotação dos dois ativos no horário informado (pode divergir um pouco da taxa real da corretora/DEX, que não conta slippage nem taxas).
+- **Registros antigos**: `/old_compra`, `/old_venda` e `/old_troca` aceitam data completa (`DD-MM-AAAA-HH:MM`), buscam o candle histórico na Binance e recalculam o FIFO do ativo — o PnL de vendas já confirmadas pode mudar retroativamente se a ordem cronológica real for diferente da ordem de registro. Datas futuras são rejeitadas.
 - Só aceita os ativos de `config.yaml` e mensagens do `TELEGRAM_CHAT_ID` configurado.
 
 ## Limitações conhecidas da V1

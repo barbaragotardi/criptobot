@@ -16,17 +16,13 @@ def _current_price(exchange, symbol: str) -> float:
         return float(raw[-1][4])
 
 
-def price_at(exchange, symbol: str, hhmm: str, cfg: dict) -> tuple[float, int, bool]:
-    """Return (price, trade_ts_ms, fallback).
+def price_at_dt(exchange, symbol: str, local_dt, cfg: dict) -> tuple[float, int, bool]:
+    """Return (price, trade_ts_ms, fallback) for an explicit local datetime.
 
-    Uses the nearest closed 1m candle at or before the informed time.
+    Uses the nearest closed 1m candle at or before local_dt.
     Falls back to current price when the candle is not closed yet
-    (informed time too recent or in the future).
+    (datetime too recent or in the future).
     """
-    tz = ZoneInfo(cfg["system"].get("timezone", "America/Sao_Paulo"))
-    now_local = datetime.now(tz)
-    hh, mm = int(hhmm.split(":")[0]), int(hhmm.split(":")[1])
-    local_dt = now_local.replace(hour=hh, minute=mm, second=0, microsecond=0)
     trade_ts_ms = int(local_dt.timestamp() * 1000)
     now_ms = int(time.time() * 1000)
 
@@ -39,5 +35,15 @@ def price_at(exchange, symbol: str, hhmm: str, cfg: dict) -> tuple[float, int, b
               if r[0] + 60_000 <= now_ms and r[0] <= trade_ts_ms]
     if closed:
         return float(closed[-1][4]), trade_ts_ms, False
-    log.warning("no closed 1m candle at %s for %s, using current price", hhmm, symbol)
+    log.warning("no closed 1m candle at %s for %s, using current price",
+                local_dt.strftime("%d-%m-%Y-%H:%M"), symbol)
     return _current_price(exchange, symbol), trade_ts_ms, True
+
+
+def price_at(exchange, symbol: str, hhmm: str, cfg: dict) -> tuple[float, int, bool]:
+    """Return (price, trade_ts_ms, fallback) for HH:MM today (local timezone)."""
+    tz = ZoneInfo(cfg["system"].get("timezone", "America/Sao_Paulo"))
+    now_local = datetime.now(tz)
+    hh, mm = int(hhmm.split(":")[0]), int(hhmm.split(":")[1])
+    local_dt = now_local.replace(hour=hh, minute=mm, second=0, microsecond=0)
+    return price_at_dt(exchange, symbol, local_dt, cfg)

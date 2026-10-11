@@ -87,12 +87,18 @@ INVALIDATED | TIMEOUT | COOLDOWN | SEND_FAILED | ERROR` (detalhes no README).
 
 ```
 main.py (thread daemon telegram-listener) → run_listener (getUpdates long-poll)
-  → handle_text: /compra MOEDA,HH:MM,QTD | /venda ... | /extrato [MOEDA]
-                 | /historico [MOEDA] | /edit ID,CAMPO,VALOR | /delete ID
-src/portfolio/parser.py    parse_command + parse_edit + parse_delete + validate_asset (só assets do config)
-src/portfolio/pricing.py   price_at: candle 1m fechado ≤ horário (since); fallback = preço atual
+  → handle_text: /compra MOEDA,HH:MM,QTD | /venda ... | /troca DE,PARA,HH:MM,QTD
+                 | /old_compra|/old_venda MOEDA,DD-MM-AAAA-HH:MM,QTD | /old_troca ...
+                 | /extrato [MOEDA] | /historico [MOEDA]
+                 | /edit ID,CAMPO,VALOR (hora: HH:MM ou DD-MM-AAAA-HH:MM)
+                 | /delete ID | /help
+src/portfolio/parser.py    parse_command + parse_troca + parse_old_command + parse_old_troca
+                            + parse_edit + parse_delete + validate_asset (só assets do config)
+src/portfolio/pricing.py   price_at (hoje) delega p/ price_at_dt (datetime explícito, p/ /old_* e /edit);
+                            candle 1m fechado ≤ horário (since); fallback = preço atual
 src/portfolio/store.py     portfolio_trades (ledger; remaining_qty por lote BUY) + weighted_avg
-                            (BUY: só lotes abertos) + consume_fifo(commit flag) + realized_pnl
+                            (BUY: só lotes abertos) + consume_fifo(commit flag)
+                            + record_trade(commit flag) + realized_pnl
                             + get/update/delete_trade + recompute_fifo (rebuild por ativo);
                             portfolio_fifo_matches (1 linha por lote abatido: qty, preços, PnL)
 src/portfolio/monitor.py   check_portfolio_alerts: a cada ciclo 15m, compara preço atual
@@ -102,9 +108,14 @@ src/portfolio/monitor.py   check_portfolio_alerts: a cada ciclo 15m, compara pre
 Regra: /venda maior que a posição aberta é rejeitada (nada é gravado).
 Regra: /edit e /delete recalculam o FIFO do ativo do zero (recompute_fifo); se alguma
        venda ficaria sem lote suficiente, a operação sofre rollback total (ValueError).
+Regra: /troca = SELL(from, FIFO) + BUY(to, qty calculada pela cotação). /old_*
+       inserem com commit=False + recompute_fifo (rollback total se inválido);
+       datas futuras são rejeitadas.
 /extrato = só lotes BUY em aberto + % vs cotação atual. /historico = vendas + PnL realizado.
+/help = texto estático (format_help), sem acesso ao banco.
 src/alerts/telegram.py     + get_updates + format_trade_confirmation/format_portfolio_alert/format_extrato
                             + format_historico/format_edit_confirmation/format_delete_confirmation
+                            + format_troca_confirmation/format_help (when opcional p/ /old_*)
 src/portfolio/monitor.py   check_portfolio_alerts: a cada ciclo 15m, compara preço atual
                             com média ponderada (BUY: alta, só posição aberta; SELL: queda)
                             e com cada trade (lote BUY 100% vendido não alerta);

@@ -9,15 +9,26 @@ from src.alerts.telegram import (
     format_delete_confirmation,
     format_edit_confirmation,
     format_extrato,
+    format_help,
     format_historico,
     format_sell_confirmation,
     format_trade_confirmation,
+    format_troca_confirmation,
     get_updates,
     send_telegram,
 )
 from src.exchange.client import make_exchange, symbol_for
-from src.portfolio.parser import parse_command, parse_delete, parse_edit, validate_asset
-from src.portfolio.pricing import price_at
+from src.portfolio.parser import (
+    parse_command,
+    parse_delete,
+    parse_edit,
+    parse_full_dt,
+    parse_old_command,
+    parse_old_troca,
+    parse_troca,
+    validate_asset,
+)
+from src.portfolio.pricing import price_at, price_at_dt
 from src.portfolio.store import (
     consume_fifo,
     delete_trade,
@@ -65,11 +76,27 @@ def current_prices(conn, exchange, cfg, assets: list[str]) -> dict[str, float]:
     return out
 
 
+def _reject_future(local_dt, raw: str) -> None:
+    """Raise ValueError if a backfill datetime is in the future (60s tolerance)."""
+    if local_dt.timestamp() > time.time() + 60:
+        raise ValueError(
+            f"Data no futuro: {raw}. Use /compra, /venda ou /troca para hoje."
+        )
+
+
+def _local_dt(cfg: dict, naive):
+    tz = ZoneInfo(cfg["system"].get("timezone", "America/Sao_Paulo"))
+    return naive.replace(tzinfo=tz)
+
+
 def handle_text(text: str, message_id: int, conn, exchange, cfg) -> str:
     """Process one message, persist, and return the reply text."""
     tg_chat = str(cfg["telegram"]["chat_id"])
     _ = tg_chat  # chat check happens in run_listener; direct calls skip it
     cmd = (text or "").strip()
+    if cmd.lower().startswith("/help"):
+        return format_help()
+
     if cmd.lower().startswith("/extrato"):
         parts = cmd.split()
         asset = parts[1].upper() if len(parts) > 1 else None
@@ -127,15 +154,23 @@ def handle_text(text: str, message_id: int, conn, exchange, cfg) -> str:
             return format_edit_confirmation(
                 trade_id, tr["asset"], tr["side"], "Preço", old, f"${new_price:,.2f}")
         quote = cfg["system"]["quote_currency"]
-        price, trade_ts_ms, fallback = price_at(
-            exchange, symbol_for(tr["asset"], quote), raw, cfg)
         tz = ZoneInfo(cfg["system"].get("timezone", "America/Sao_Paulo"))
-        old_hhmm = datetime.fromtimestamp(tr["trade_ts"] / 1000, tz).strftime("%H:%M")
+        if "-" in raw:
+            local_dt = _local_dt(cfg, parse_full_dt(raw))
+            _reject_future(local_dt, raw)
+            price, trade_ts_ms, fallback = price_at_dt(
+                exchange, symbol_for(tr["asset"], quote), local_dt, cfg)
+            old_str = datetime.fromtimestamp(tr["trade_ts"] / 1000, tz).strftime("%d/%m/%Y %H:%M")
+            new_str = f"{local_dt.strftime('%d/%m/%Y %H:%M')} (preço ${price:,.2f})"
+        else:
+            price, trade_ts_ms, fallback = price_at(
+                exchange, symbol_for(tr["asset"], quote), raw, cfg)
+            old_str = datetime.fromtimestamp(tr["trade_ts"] / 1000, tz).strftime("%H:%M")
+            new_str = f"{raw} (preço ${price:,.2f})"
         update_trade_time(conn, trade_id, trade_ts_ms, price, fallback, commit=False)
         recompute_fifo(conn, tr["asset"])
         reply = format_edit_confirmation(
-            trade_id, tr["asset"], tr["side"], "Horário",
-            old_hhmm, f"{raw} (preço ${price:,.2f})")
+            trade_id, tr["asset"], tr["side"], "Horário", old_str, new_str)
         if fallback:
             reply += "\n⚠️ Preço atual (candle do horário ainda não fechado)."
         return reply
@@ -148,6 +183,76 @@ def handle_text(text: str, message_id: int, conn, exchange, cfg) -> str:
         delete_trade(conn, trade_id, commit=False)
         recompute_fifo(conn, tr["asset"])
         return format_delete_confirmation(tr)
+
+    if cmd.lower().startswith("/troca"):
+        asset_from, asset_to, hhmm, qty = parse_troca(cmd)
+        validate_asset(asset_from, cfg)
+        validate_asset(asset_to, cfg)
+        quote = cfg["system"]["quote_currency"]
+        price_from, trade_ts_ms, fb_from = price_at(
+            exchange, symbol_for(asset_from, quote), hhmm, cfg)
+        price_to, _, fb_to = price_at(
+            exchange, symbol_for(asset_to, quote), hhmm, cfg)
+        avail = open_buy_qty(conn, asset_from)
+        if qty > avail:
+            raise ValueError(
+                f"Troca de {qty:g} {asset_from} maior que a posição aberta ({avail:g}). "
+                "Não registrada."
+            )
+        qty_to = (qty * price_from) / price_to
+        sell_id = record_trade(conn, asset_from, "SELL", trade_ts_ms, qty,
+                               price_from, fb_from, message_id)
+        matches = consume_fifo(conn, asset_from, sell_id, qty, price_from)
+        record_trade(conn, asset_to, "BUY", trade_ts_ms, qty_to,
+                     price_to, fb_to, message_id)
+        return format_troca_confirmation(asset_from, qty, price_from,
+                                         asset_to, qty_to, price_to,
+                                         fb_from or fb_to, matches)
+
+    if cmd.lower().startswith("/old_compra") or cmd.lower().startswith("/old_venda"):
+        side, asset, naive, qty = parse_old_command(cmd)
+        validate_asset(asset, cfg)
+        local_dt = _local_dt(cfg, naive)
+        _reject_future(local_dt, naive.strftime("%d-%m-%Y-%H:%M"))
+        quote = cfg["system"]["quote_currency"]
+        price, trade_ts_ms, fallback = price_at_dt(
+            exchange, symbol_for(asset, quote), local_dt, cfg)
+        when = local_dt.strftime("%d/%m/%Y %H:%M")
+        trade_id = record_trade(conn, asset, side, trade_ts_ms, qty, price,
+                                fallback, message_id, commit=False)
+        recompute_fifo(conn, asset)
+        if side == "SELL":
+            matches = [m for m in matches_for_asset(conn, asset)
+                       if m["sell_trade_id"] == trade_id]
+            return format_sell_confirmation(asset, qty, price, qty * price,
+                                            fallback, matches, when)
+        return format_trade_confirmation(side, asset, qty, price, qty * price,
+                                         fallback, when)
+
+    if cmd.lower().startswith("/old_troca"):
+        asset_from, asset_to, naive, qty = parse_old_troca(cmd)
+        validate_asset(asset_from, cfg)
+        validate_asset(asset_to, cfg)
+        local_dt = _local_dt(cfg, naive)
+        _reject_future(local_dt, naive.strftime("%d-%m-%Y-%H:%M"))
+        quote = cfg["system"]["quote_currency"]
+        price_from, trade_ts_ms, fb_from = price_at_dt(
+            exchange, symbol_for(asset_from, quote), local_dt, cfg)
+        price_to, _, fb_to = price_at_dt(
+            exchange, symbol_for(asset_to, quote), local_dt, cfg)
+        when = local_dt.strftime("%d/%m/%Y %H:%M")
+        qty_to = (qty * price_from) / price_to
+        sell_id = record_trade(conn, asset_from, "SELL", trade_ts_ms, qty,
+                               price_from, fb_from, message_id, commit=False)
+        recompute_fifo(conn, asset_from)
+        record_trade(conn, asset_to, "BUY", trade_ts_ms, qty_to,
+                     price_to, fb_to, message_id, commit=False)
+        recompute_fifo(conn, asset_to)
+        matches = [m for m in matches_for_asset(conn, asset_from)
+                   if m["sell_trade_id"] == sell_id]
+        return format_troca_confirmation(asset_from, qty, price_from,
+                                         asset_to, qty_to, price_to,
+                                         fb_from or fb_to, matches, when)
 
     side, asset, hhmm, qty = parse_command(cmd)
     validate_asset(asset, cfg)

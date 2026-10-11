@@ -7,7 +7,8 @@ log = logging.getLogger(__name__)
 
 
 def record_trade(conn, asset: str, side: str, trade_ts_ms: int, qty: float,
-                 price: float, fallback: bool, message_id: int | None = None) -> int:
+                 price: float, fallback: bool, message_id: int | None = None,
+                 commit: bool = True) -> int:
     cur = conn.execute(
         "INSERT INTO portfolio_trades "
         "(asset, side, trade_ts, quantity, price, cost_usd, price_fallback, "
@@ -16,7 +17,8 @@ def record_trade(conn, asset: str, side: str, trade_ts_ms: int, qty: float,
         (asset, side, trade_ts_ms, qty, price, qty * price,
          int(fallback), int(time.time()), message_id, qty),
     )
-    conn.commit()
+    if commit:
+        conn.commit()
     log.info("Portfolio %s %s qty=%.6g @ %.2f", side, asset, qty, price)
     return cur.lastrowid
 
