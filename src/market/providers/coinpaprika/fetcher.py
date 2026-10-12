@@ -1,4 +1,8 @@
-"""Fetch CoinPaprika endpoints. Retry twice with backoff, skip on failure."""
+"""Fetch CoinPaprika endpoints. Retry twice with backoff, skip on failure.
+
+Free plan (https://api.coinpaprika.com/v1): no API key required.
+Paid plans (https://api-pro.coinpaprika.com/v1): Authorization: <api-key>.
+api_key is therefore optional and only sent when non-empty."""
 
 import logging
 import time

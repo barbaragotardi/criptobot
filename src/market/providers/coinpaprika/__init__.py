@@ -20,6 +20,8 @@ def fetch_market_data(cfg: dict, assets: list[str] | None = None) -> list[Market
     paprika = cfg.get("coinpaprika", {})
     api_key = paprika.get("api_key", "")
     base_url = paprika.get("base_url", BASE_URL)
+    if "api-pro" in base_url and not api_key:
+        log.warning("CoinPaprika api-pro base_url without api_key; requests will likely 403")
     out: list[MarketDataPaprika] = []
     for asset in assets:
         paprika_id = get_paprika_id(asset, api_key, base_url)

@@ -28,7 +28,8 @@ def load_config(path: str | Path = CONFIG_PATH) -> dict:
         "cache_ttl_seconds": 3600,
     }
     cfg["coinpaprika"] = {
+        # Free plan needs no key; key only used with api-pro base_url.
         "api_key": os.getenv("COINPAPRIKA_API_KEY", ""),
-        "base_url": "https://api.coinpaprika.com/v1",
+        "base_url": os.getenv("COINPAPRIKA_BASE_URL", "https://api.coinpaprika.com/v1"),
     }
     return cfg

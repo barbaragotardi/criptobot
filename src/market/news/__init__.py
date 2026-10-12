@@ -9,7 +9,7 @@ from .parser import parse_all
 __all__ = ["FEEDS", "NewsArticle", "NewsCache", "fetch_news"]
 
 
-def fetch_news(feeds: dict[str, str] | None = None) -> list[NewsArticle]:
+def fetch_news(feeds: dict[str, str | list[str]] | None = None) -> list[NewsArticle]:
     """Full pipeline: fetch feeds, parse, classify, dedup. Returns in-memory list."""
     raw = fetch_all(feeds)
     articles = parse_all(raw)

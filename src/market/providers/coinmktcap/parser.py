@@ -80,6 +80,11 @@ def parse_quotes(raw: bytes) -> list[MarketDataCMC]:
     now = datetime.now(timezone.utc)
     out: list[MarketDataCMC] = []
     for symbol, entry in data.items():
+        # /v2/quotes/latest?symbol=BTC retorna {"BTC": [{...}]} (lista por symbol)
+        if isinstance(entry, list):
+            if not entry:
+                continue
+            entry = entry[0]
         if not isinstance(entry, dict):
             continue
         coin_id = _int(entry.get("id"))

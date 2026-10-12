@@ -10,6 +10,9 @@ assets:
   - UNI
   - LTC
   - AVAX
+  - AAVE
+  - QNT
+  - ATOM
 
 timeframes:
   macro: 1D
