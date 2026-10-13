@@ -109,6 +109,12 @@ def _migrate_portfolio_remaining_qty(conn: sqlite3.Connection) -> None:
         "UPDATE portfolio_trades SET remaining_qty = quantity "
         "WHERE remaining_qty IS NULL"
     )
+    # Cleanup float dust from FIFO subtractions (e.g. 1e-08 left after sells).
+    conn.execute(
+        "UPDATE portfolio_trades SET remaining_qty = 0 "
+        "WHERE side = 'BUY' AND remaining_qty IS NOT NULL "
+        "AND ABS(remaining_qty) < 1e-9"
+    )
     conn.commit()
 
 

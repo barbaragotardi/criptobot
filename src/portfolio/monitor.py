@@ -4,7 +4,7 @@ import logging
 
 from src.alerts.telegram import format_portfolio_alert, send_telegram
 from src.exchange.client import fetch_ohlcv, symbol_for
-from src.portfolio.store import distinct_assets, list_trades, weighted_avg
+from src.portfolio.store import EPS_QTY, distinct_assets, list_trades, weighted_avg
 
 log = logging.getLogger(__name__)
 
@@ -77,7 +77,7 @@ def check_portfolio_alerts(conn, exchange, cfg) -> list[dict]:
 
             # --- individual trade scope (fires once per threshold) ---
             for tr in [t for t in list_trades(conn, asset) if t["side"] == side]:
-                if side == "BUY" and (tr.get("remaining_qty") or 0) <= 0:
+                if side == "BUY" and (tr.get("remaining_qty") or 0) <= EPS_QTY:
                     continue  # lot fully sold via FIFO: nothing held, no alert
                 pct = _variation(side, tr["price"], current)
                 col = None

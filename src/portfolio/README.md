@@ -13,8 +13,8 @@ Gerenciamento manual de trades via Telegram (ortogonal ao motor de sinais autom�
 ## Comandos
 
 - `/compra MOEDA,HH:MM,QTD` — registro de compra hoje
-- `/venda MOEDA,HH:MM,QTD` — registro de venda hoje
-- `/troca DE,PARA,HH:MM,QTD` — venda DE + compra PARA (preço/hora iguais)
+- `/venda MOEDA,HH:MM,QTD|all` — registro de venda hoje (`all` = vende tudo o que está aberto)
+- `/troca DE,PARA,HH:MM,QTD|all` — venda DE + compra PARA (preço/hora iguais)
 - `/old_compra|/old_venda|/old_troca MOEDA,DD-MM-AAAA-HH:MM,QTD` — histórico
 - `/edit ID,CAMPO,VALOR` — ajustar hora/qtd de trade existente
 - `/delete ID` — remover trade

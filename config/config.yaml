@@ -13,6 +13,19 @@ assets:
   - AAVE
   - QNT
   - ATOM
+  - ADA
+  - HBAR
+  - DOT
+  - ETC
+  - POL
+  - ALGO
+  - ARB
+  - TIA
+  - XTZ
+  - IMX
+  - GRT
+  - OP
+  - LDO
 
 timeframes:
   macro: 1D

@@ -6,7 +6,7 @@ import re
 log = logging.getLogger(__name__)
 
 COMMAND_RE = re.compile(
-    r"^/(compra|venda)\s+([A-Za-z0-9]+)\s*,\s*(\d{1,2}:\d{2})\s*,\s*([0-9]+(?:\.[0-9]+)?)\s*$",
+    r"^/(compra|venda)\s+([A-Za-z0-9]+)\s*,\s*(\d{1,2}:\d{2})\s*,\s*([0-9]+(?:\.[0-9]+)?|all)\s*$",
     re.IGNORECASE,
 )
 
@@ -18,23 +18,27 @@ EDIT_RE = re.compile(
 DELETE_RE = re.compile(r"^/delete\s+(\d+)\s*$", re.IGNORECASE)
 
 TROCA_RE = re.compile(
-    r"^/troca\s+([A-Za-z0-9]+)\s*,\s*([A-Za-z0-9]+)\s*,\s*(\d{1,2}:\d{2})\s*,\s*([0-9]+(?:\.[0-9]+)?)\s*$",
+    r"^/troca\s+([A-Za-z0-9]+)\s*,\s*([A-Za-z0-9]+)\s*,\s*(\d{1,2}:\d{2})\s*,\s*([0-9]+(?:\.[0-9]+)?|all)\s*$",
     re.IGNORECASE,
 )
 
 OLD_COMMAND_RE = re.compile(
-    r"^/old_(compra|venda)\s+([A-Za-z0-9]+)\s*,\s*(\d{1,2}-\d{1,2}-\d{4}-\d{1,2}:\d{2})\s*,\s*([0-9]+(?:\.[0-9]+)?)\s*$",
+    r"^/old_(compra|venda)\s+([A-Za-z0-9]+)\s*,\s*(\d{1,2}-\d{1,2}-\d{4}-\d{1,2}:\d{2})\s*,\s*([0-9]+(?:\.[0-9]+)?|all)\s*$",
     re.IGNORECASE,
 )
 
 OLD_TROCA_RE = re.compile(
-    r"^/old_troca\s+([A-Za-z0-9]+)\s*,\s*([A-Za-z0-9]+)\s*,\s*(\d{1,2}-\d{1,2}-\d{4}-\d{1,2}:\d{2})\s*,\s*([0-9]+(?:\.[0-9]+)?)\s*$",
+    r"^/old_troca\s+([A-Za-z0-9]+)\s*,\s*([A-Za-z0-9]+)\s*,\s*(\d{1,2}-\d{1,2}-\d{4}-\d{1,2}:\d{2})\s*,\s*([0-9]+(?:\.[0-9]+)?|all)\s*$",
     re.IGNORECASE,
 )
 
 
-def parse_command(text: str) -> tuple[str, str, str, float]:
-    """Return (side, asset, hhmm, qty). side is 'BUY' or 'SELL'. Raises ValueError."""
+def parse_command(text: str) -> tuple[str, str, str, float | None]:
+    """Return (side, asset, hhmm, qty). qty is None when 'all' was given.
+
+    'all' only makes sense for SELL; BUY with 'all' is rejected here.
+    Raises ValueError.
+    """
     m = COMMAND_RE.match((text or "").strip())
     if not m:
         raise ValueError(
@@ -44,8 +48,10 @@ def parse_command(text: str) -> tuple[str, str, str, float]:
     side = "BUY" if m.group(1).lower() == "compra" else "SELL"
     asset = m.group(2).upper()
     hhmm = m.group(3)
-    qty = float(m.group(4))
-    if qty <= 0:
+    qty = _parse_qty_or_all(m.group(4))
+    if qty is None and side == "BUY":
+        raise ValueError("'/compra ... ,all' não faz sentido. Informe a quantidade.")
+    if qty is not None and qty <= 0:
         raise ValueError("Quantidade deve ser maior que zero.")
     hh, mm = int(hhmm.split(":")[0]), int(hhmm.split(":")[1])
     if hh > 23 or mm > 59:
@@ -121,7 +127,10 @@ def _validate_hhmm(hhmm: str) -> str:
     return f"{hh:02d}:{mm:02d}"
 
 
-def _validate_qty(raw: str) -> float:
+def _validate_qty(raw: str) -> float | None:
+    """Numeric qty, or None for 'all' (case-insensitive)."""
+    if raw.strip().lower() == "all":
+        return None
     try:
         qty = float(raw.replace(",", "."))
     except ValueError:
@@ -131,8 +140,12 @@ def _validate_qty(raw: str) -> float:
     return qty
 
 
-def parse_troca(text: str) -> tuple[str, str, str, float]:
-    """Return (asset_from, asset_to, hhmm, qty). Raises ValueError."""
+def _parse_qty_or_all(raw: str) -> float | None:
+    return _validate_qty(raw)
+
+
+def parse_troca(text: str) -> tuple[str, str, str, float | None]:
+    """Return (asset_from, asset_to, hhmm, qty). qty None means 'all'. Raises ValueError."""
     m = TROCA_RE.match((text or "").strip())
     if not m:
         raise ValueError(
@@ -159,8 +172,11 @@ def parse_full_dt(raw: str):
         )
 
 
-def parse_old_command(text: str) -> tuple[str, str, object, float]:
-    """Return (side, asset, naive datetime, qty) for /old_compra|/old_venda."""
+def parse_old_command(text: str) -> tuple[str, str, object, float | None]:
+    """Return (side, asset, naive datetime, qty) for /old_compra|/old_venda.
+
+    qty is None when 'all' was given (SELL only).
+    """
     m = OLD_COMMAND_RE.match((text or "").strip())
     if not m:
         raise ValueError(
@@ -168,11 +184,14 @@ def parse_old_command(text: str) -> tuple[str, str, object, float]:
             "(ex: /old_compra BTC,30-12-2025-14:54,0.1)"
         )
     side = "BUY" if m.group(1).lower() == "compra" else "SELL"
-    return side, m.group(2).upper(), parse_full_dt(m.group(3)), _validate_qty(m.group(4))
+    qty = _validate_qty(m.group(4))
+    if qty is None and side == "BUY":
+        raise ValueError("'/old_compra ... ,all' não faz sentido. Informe a quantidade.")
+    return side, m.group(2).upper(), parse_full_dt(m.group(3)), qty
 
 
-def parse_old_troca(text: str) -> tuple[str, str, object, float]:
-    """Return (asset_from, asset_to, naive datetime, qty). Raises ValueError."""
+def parse_old_troca(text: str) -> tuple[str, str, object, float | None]:
+    """Return (asset_from, asset_to, naive datetime, qty). qty None = 'all'."""
     m = OLD_TROCA_RE.match((text or "").strip())
     if not m:
         raise ValueError(

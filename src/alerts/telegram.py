@@ -90,6 +90,21 @@ def _trend_emoji(pct: float) -> str:
     return "🟢" if pct >= 0 else "🔴"
 
 
+def fmt_qty(qty: float) -> str:
+    """Format quantity without scientific notation (1e-08 -> 0.00000001).
+
+    Trims trailing zeros, up to 8 decimals. Dust (<1e-9) shows as '0'.
+    """
+    try:
+        q = float(qty)
+    except (TypeError, ValueError):
+        return "0"
+    if abs(q) < 1e-9:
+        return "0"
+    s = f"{q:.8f}".rstrip("0").rstrip(".")
+    return s if s else "0"
+
+
 def format_trade_confirmation(side: str, asset: str, qty: float, price: float,
                               cost: float, fallback: bool,
                               when: str | None = None) -> str:
@@ -100,7 +115,7 @@ def format_trade_confirmation(side: str, asset: str, qty: float, price: float,
     return (
         f"✅ {op} REGISTRADA\n"
         f"\n{emoji} Ativo: {asset}\n"
-        f"🔢 Quantidade: {qty:g}\n"
+        f"🔢 Quantidade: {fmt_qty(qty)}\n"
         f"💲 Preço: ${price:,.2f}\n"
         f"💰 Valor: ${cost:,.2f}"
         f"{when_line}"
@@ -130,7 +145,7 @@ def format_sell_confirmation(asset: str, qty: float, price: float,
     lines = [
         "✅ VENDA REGISTRADA",
         f"\n💸 Ativo: {asset}\n"
-        f"🔢 Quantidade: {qty:g}\n"
+        f"🔢 Quantidade: {fmt_qty(qty)}\n"
         f"💲 Preço: ${price:,.2f}\n"
         f"💰 Valor: ${cost:,.2f}"
         f"{when_line}"
@@ -141,7 +156,7 @@ def format_sell_confirmation(asset: str, qty: float, price: float,
     for m in matches:
         total_pnl += m["pnl_usd"]
         lines.append(
-            f"{_trend_emoji(m['pnl_pct'])} {m['qty']:g} @ ${m['buy_price']:,.2f} "
+            f"{_trend_emoji(m['pnl_pct'])} {fmt_qty(m['qty'])} @ ${m['buy_price']:,.2f} "
             f"→ PnL: ${m['pnl_usd']:+,.2f} ({m['pnl_pct']:+.1f}%)"
         )
     lines.append(f"\n🏁 PnL realizado nesta venda: ${total_pnl:+,.2f} {_trend_emoji(total_pnl)}")
@@ -157,9 +172,9 @@ def format_troca_confirmation(asset_from: str, qty_from: float, price_from: floa
     when_line = f"\n📅 Data: {when}" if when else ""
     lines = [
         "✅ TROCA REGISTRADA",
-        f"\n💸 Vendeu: {qty_from:g} {asset_from} @ ${price_from:,.2f} "
+        f"\n💸 Vendeu: {fmt_qty(qty_from)} {asset_from} @ ${price_from:,.2f} "
         f"(${qty_from * price_from:,.2f})",
-        f"🛒 Comprou: {qty_to:g} {asset_to} @ ${price_to:,.2f} "
+        f"🛒 Comprou: {fmt_qty(qty_to)} {asset_to} @ ${price_to:,.2f} "
         f"(${qty_to * price_to:,.2f})"
         f"{when_line}"
         f"{extra}",
@@ -169,7 +184,7 @@ def format_troca_confirmation(asset_from: str, qty_from: float, price_from: floa
     for m in matches:
         total_pnl += m["pnl_usd"]
         lines.append(
-            f"{_trend_emoji(m['pnl_pct'])} {m['qty']:g} @ ${m['buy_price']:,.2f} "
+            f"{_trend_emoji(m['pnl_pct'])} {fmt_qty(m['qty'])} @ ${m['buy_price']:,.2f} "
             f"→ PnL: ${m['pnl_usd']:+,.2f} ({m['pnl_pct']:+.1f}%)"
         )
     lines.append(f"\n🏁 PnL realizado nesta troca: ${total_pnl:+,.2f} {_trend_emoji(total_pnl)}")
@@ -181,7 +196,15 @@ SEP = "➖➖➖➖➖➖➖➖"
 
 def format_extrato(rows: list[dict], avgs: dict, prices: dict) -> str:
     """Open BUY positions: portfolio summary + per-asset blocks with allocation."""
-    assets = sorted({r["asset"] for r in rows})
+    # Hide float dust: lots with remaining <= EPS don't count as open.
+    EPS = 1e-9
+    rows = [r for r in rows
+            if r.get("side", "BUY") == "BUY" and (r.get("remaining_qty") or 0) > EPS]
+    # Drop dust-only averages (qty <= EPS) so a fully-sold asset disappears.
+    avgs = {k: v for k, v in (avgs or {}).items() if (v[1] or 0) > EPS}
+    assets = sorted({r["asset"] for r in rows if (r["asset"], "BUY") in avgs})
+    if not assets:
+        return "📋 EXTRATO · posições em aberto\n\n📭 Nenhuma posição em aberto."
     stats: dict[str, dict] = {}
     for a in assets:
         avg, qty = avgs.get((a, "BUY"), (0.0, 0.0))
@@ -209,13 +232,11 @@ def format_extrato(rows: list[dict], avgs: dict, prices: dict) -> str:
 
     ranked = [(a, s["pct"]) for a, s in stats.items() if s["pct"] is not None]
     if len(ranked) >= 2:
-        best = max(ranked, key=lambda x: x[1])
-        worst = min(ranked, key=lambda x: x[1])
         lines.append("")
-        lines.append(f"🏆 Melhor posição: <b>{best[0]}</b> {best[1]:+.1f}% "
-                     f"{_trend_emoji(best[1])}")
-        lines.append(f"🥶 Pior posição: <b>{worst[0]}</b> {worst[1]:+.1f}% "
-                     f"{_trend_emoji(worst[1])}")
+        lines.append("🏆 <b>Ranking</b> · melhor → pior")
+        for i, (a, p) in enumerate(
+                sorted(ranked, key=lambda x: x[1], reverse=True), 1):
+            lines.append(f"{i}. <b>{a}</b> {p:+.1f}% {_trend_emoji(p)}")
 
     for asset in assets:
         s = stats[asset]
@@ -226,17 +247,20 @@ def format_extrato(rows: list[dict], avgs: dict, prices: dict) -> str:
         else:
             lines.append(header)
         for r in [x for x in rows if x["asset"] == asset]:
-            line = (f"#{r['id']} COMPRA {r['quantity']:g} @ ${r['price']:,.2f}")
+            open_q = r.get("remaining_qty") or r.get("quantity") or 0
+            line = (f"#{r['id']} COMPRA {fmt_qty(open_q)} @ ${r['price']:,.2f}")
             if s["current"]:
-                gain = (s["current"] - r["price"]) * r["quantity"]
+                gain = (s["current"] - r["price"]) * open_q
                 pct = (s["current"] - r["price"]) / r["price"] * 100
                 line += f"  {_trend_emoji(pct)} ${gain:+,.2f} ({pct:+.1f}%)"
             lines.append(line)
-        lines.append(f"📊 Média ${s['avg']:,.2f} · Aberto: {s['qty']:g} {asset}")
-        if s["current"]:
+        lines.append(f"📊 Média ${s['avg']:,.2f} · Aberto: {fmt_qty(s['qty'])} {asset}")
+        if s["current"] and s["pct"] is not None:
             pnl = s["value"] - s["invested"]
             lines.append(f"📈 ${s['value']:,.2f} (investido ${s['invested']:,.2f})  "
                          f"<b>${pnl:+,.2f} ({s['pct']:+.1f}%)</b> {_trend_emoji(pnl)}")
+        elif s["current"]:
+            lines.append(f"📈 ${s['value']:,.2f} (investido ${s['invested']:,.2f})")
         else:
             lines.append(f"📈 Investido ${s['invested']:,.2f} (sem cotação atual)")
     return "\n".join(lines)
@@ -260,19 +284,19 @@ def format_historico(rows: list[dict], matches_by_sell: dict,
             sell_matches = matches_by_sell.get(r["id"], [])
             sell_pnl = sum(m["pnl_usd"] for m in sell_matches)
             lines.append(
-                f"#{r['id']} VENDA {r['quantity']:g} @ ${r['price']:,.2f} "
+                f"#{r['id']} VENDA {fmt_qty(r['quantity'])} @ ${r['price']:,.2f} "
                 f"(${r['cost_usd']:,.2f}) {_trend_emoji(sell_pnl)}"
             )
             for m in sell_matches:
                 lines.append(
-                    f"  ↳ lote #{m['buy_trade_id']}: {m['qty']:g} "
+                    f"  ↳ lote #{m['buy_trade_id']}: {fmt_qty(m['qty'])} "
                     f"@ ${m['buy_price']:,.2f} "
                     f"→ PnL: ${m['pnl_usd']:+,.2f} ({m['pnl_pct']:+.1f}%) "
                     f"{_trend_emoji(m['pnl_pct'])}"
                 )
         if asset in realized:
             pnl, matched = realized[asset]
-            lines.append(f"🏁 PnL realizado: ${pnl:+,.2f} (qtd vendida {matched:g}) "
+            lines.append(f"🏁 PnL realizado: ${pnl:+,.2f} (qtd vendida {fmt_qty(matched)}) "
                          f"{_trend_emoji(pnl)}")
     return "\n".join(lines)
 
@@ -292,7 +316,7 @@ def format_delete_confirmation(trade: dict) -> str:
     op = "COMPRA" if trade["side"] == "BUY" else "VENDA"
     return (
         "🗑️ REGISTRO APAGADO\n"
-        f"\n🪙 #{trade['id']} {op} {trade['quantity']:g} {trade['asset']} "
+        f"\n🪙 #{trade['id']} {op} {fmt_qty(trade['quantity'])} {trade['asset']} "
         f"@ ${trade['price']:,.2f}\n"
         "\n📦 FIFO recalculado para o ativo."
     )
@@ -305,16 +329,16 @@ def format_help() -> str:
         "Registra uma compra.\n"
         "Ex: /compra BTC,14:30,0.05\n"
         "\n💸 /venda MOEDA,HH:MM,QTD\n"
-        "Registra uma venda (FIFO).\n"
-        "Ex: /venda BTC,09:00,0.02\n"
+        "Registra uma venda (FIFO). Use 'all' para vender tudo.\n"
+        "Ex: /venda BTC,09:00,0.02 ou /venda BTC,09:00,all\n"
         "\n🔄 /troca DE,PARA,HH:MM,QTD\n"
-        "Troca um ativo por outro.\n"
+        "Troca um ativo por outro. Use 'all' para trocar tudo.\n"
         "Ex: /troca NEAR,ETH,13:50,70.5\n"
         "\n📅 /old_compra MOEDA,DD-MM-AAAA-HH:MM,QTD\n"
         "Compra antiga.\n"
         "Ex: /old_compra BTC,30-12-2025-14:54,0.1\n"
         "\n📅 /old_venda MOEDA,DD-MM-AAAA-HH:MM,QTD\n"
-        "Venda antiga.\n"
+        "Venda antiga. Use 'all' para vender tudo.\n"
         "Ex: /old_venda BTC,15-01-2026-10:00,0.05\n"
         "\n📅 /old_troca DE,PARA,DD-MM-AAAA-HH:MM,QTD\n"
         "Troca antiga.\n"

@@ -131,7 +131,7 @@ Registre suas compras/vendas reais pelo Telegram e receba alertas de +5%/+10%:
 
 ```text
 /compra BTC,14:30,0.05   → registra 0.05 BTC ao preço do candle 1m das 14:30
-/venda ETH,09:00,2       → idem para venda
+/venda ETH,09:00,2       → idem para venda (ou /venda ETH,09:00,all p/ vender tudo)
 /troca NEAR,ETH,13:50,70.5 → troca 70.5 NEAR por ETH (qtd de ETH calculada pela cotação)
 /old_compra BTC,30-12-2025-14:54,0.1 → compra antiga (com data completa)
 /old_venda BTC,15-01-2026-10:00,0.05 → venda antiga

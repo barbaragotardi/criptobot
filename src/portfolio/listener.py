@@ -14,6 +14,7 @@ from src.alerts.telegram import (
     format_sell_confirmation,
     format_trade_confirmation,
     format_troca_confirmation,
+    fmt_qty,
     get_updates,
     send_telegram,
 )
@@ -30,6 +31,7 @@ from src.portfolio.parser import (
 )
 from src.portfolio.pricing import price_at, price_at_dt
 from src.portfolio.store import (
+    EPS_QTY,
     consume_fifo,
     delete_trade,
     get_trade,
@@ -89,6 +91,21 @@ def _local_dt(cfg: dict, naive):
     return naive.replace(tzinfo=tz)
 
 
+def _resolve_sale_qty(conn, asset: str, qty: float | None) -> float:
+    """Return concrete sale qty: open position when qty is None ('all').
+
+    Raises ValueError when there is nothing open.
+    """
+    if qty is not None:
+        return qty
+    avail = open_buy_qty(conn, asset)
+    if avail <= EPS_QTY:
+        raise ValueError(
+            f"Sem posição aberta em {asset} para vender tudo. Nada registrado."
+        )
+    return avail
+
+
 def handle_text(text: str, message_id: int, conn, exchange, cfg) -> str:
     """Process one message, persist, and return the reply text."""
     tg_chat = str(cfg["telegram"]["chat_id"])
@@ -103,7 +120,7 @@ def handle_text(text: str, message_id: int, conn, exchange, cfg) -> str:
         if asset:
             validate_asset(asset, cfg)
         rows = [r for r in list_trades(conn, asset)
-                if r["side"] == "BUY" and (r.get("remaining_qty") or 0) > 0]
+                if r["side"] == "BUY" and (r.get("remaining_qty") or 0) > EPS_QTY]
         if not rows:
             return "📋 EXTRATO · posições em aberto\n\n📭 Nenhuma posição em aberto."
         assets = sorted({r["asset"] for r in rows})
@@ -141,11 +158,11 @@ def handle_text(text: str, message_id: int, conn, exchange, cfg) -> str:
             raise ValueError(f"Registro #{trade_id} não encontrado.")
         if field == "QTY":
             new_qty = float(raw.replace(",", "."))
-            old = f"{tr['quantity']:g}"
+            old = fmt_qty(tr['quantity'])
             update_trade_qty(conn, trade_id, new_qty, commit=False)
             recompute_fifo(conn, tr["asset"])
             return format_edit_confirmation(
-                trade_id, tr["asset"], tr["side"], "Quantidade", old, f"{new_qty:g}")
+                trade_id, tr["asset"], tr["side"], "Quantidade", old, fmt_qty(new_qty))
         if field == "PRICE":
             new_price = float(raw.replace(",", "."))
             old = f"${tr['price']:,.2f}"
@@ -193,10 +210,11 @@ def handle_text(text: str, message_id: int, conn, exchange, cfg) -> str:
             exchange, symbol_for(asset_from, quote), hhmm, cfg)
         price_to, _, fb_to = price_at(
             exchange, symbol_for(asset_to, quote), hhmm, cfg)
+        qty = _resolve_sale_qty(conn, asset_from, qty)
         avail = open_buy_qty(conn, asset_from)
-        if qty > avail:
+        if qty > avail + EPS_QTY:
             raise ValueError(
-                f"Troca de {qty:g} {asset_from} maior que a posição aberta ({avail:g}). "
+                f"Troca de {fmt_qty(qty)} {asset_from} maior que a posição aberta ({fmt_qty(avail)}). "
                 "Não registrada."
             )
         qty_to = (qty * price_from) / price_to
@@ -214,6 +232,14 @@ def handle_text(text: str, message_id: int, conn, exchange, cfg) -> str:
         validate_asset(asset, cfg)
         local_dt = _local_dt(cfg, naive)
         _reject_future(local_dt, naive.strftime("%d-%m-%Y-%H:%M"))
+        if side == "SELL":
+            qty = _resolve_sale_qty(conn, asset, qty)
+            avail = open_buy_qty(conn, asset)
+            if qty > avail + EPS_QTY:
+                raise ValueError(
+                    f"Venda de {fmt_qty(qty)} {asset} maior que a posição aberta ({fmt_qty(avail)}). "
+                    "Não registrada."
+                )
         quote = cfg["system"]["quote_currency"]
         price, trade_ts_ms, fallback = price_at_dt(
             exchange, symbol_for(asset, quote), local_dt, cfg)
@@ -235,6 +261,7 @@ def handle_text(text: str, message_id: int, conn, exchange, cfg) -> str:
         validate_asset(asset_to, cfg)
         local_dt = _local_dt(cfg, naive)
         _reject_future(local_dt, naive.strftime("%d-%m-%Y-%H:%M"))
+        qty = _resolve_sale_qty(conn, asset_from, qty)
         quote = cfg["system"]["quote_currency"]
         price_from, trade_ts_ms, fb_from = price_at_dt(
             exchange, symbol_for(asset_from, quote), local_dt, cfg)
@@ -259,10 +286,11 @@ def handle_text(text: str, message_id: int, conn, exchange, cfg) -> str:
     quote = cfg["system"]["quote_currency"]
     price, trade_ts_ms, fallback = price_at(exchange, symbol_for(asset, quote), hhmm, cfg)
     if side == "SELL":
+        qty = _resolve_sale_qty(conn, asset, qty)
         avail = open_buy_qty(conn, asset)
-        if qty > avail:
+        if qty > avail + EPS_QTY:
             raise ValueError(
-                f"Venda de {qty:g} {asset} maior que a posição aberta ({avail:g}). "
+                f"Venda de {fmt_qty(qty)} {asset} maior que a posição aberta ({fmt_qty(avail)}). "
                 "Não registrada."
             )
     trade_id = record_trade(conn, asset, side, trade_ts_ms, qty, price, fallback, message_id)

@@ -5,6 +5,14 @@ import time
 
 log = logging.getLogger(__name__)
 
+# Quantities below this are float dust (e.g. 1e-08 left after FIFO) and
+# are treated as zero everywhere (filters, display, sells).
+EPS_QTY = 1e-9
+
+
+def _clamp_dust(qty: float) -> float:
+    return 0.0 if qty is None or abs(qty) <= EPS_QTY else float(qty)
+
 
 def record_trade(conn, asset: str, side: str, trade_ts_ms: int, qty: float,
                  price: float, fallback: bool, message_id: int | None = None,
@@ -43,8 +51,8 @@ def weighted_avg(conn, asset: str, side: str) -> tuple[float, float]:
     if side == "BUY":
         row = conn.execute(
             "SELECT SUM(remaining_qty * price), SUM(remaining_qty) FROM portfolio_trades "
-            "WHERE asset=? AND side='BUY' AND remaining_qty > 0",
-            (asset,),
+            "WHERE asset=? AND side='BUY' AND remaining_qty > ?",
+            (asset, EPS_QTY),
         ).fetchone()
     else:
         row = conn.execute(
@@ -54,17 +62,20 @@ def weighted_avg(conn, asset: str, side: str) -> tuple[float, float]:
         ).fetchone()
     if not row or not row[1]:
         return 0.0, 0.0
-    return row[0] / row[1], row[1]
+    qty = _clamp_dust(row[1])
+    if not qty:
+        return 0.0, 0.0
+    return row[0] / row[1], qty
 
 
 def open_buy_qty(conn, asset: str) -> float:
     """Total BUY quantity still open (not consumed by FIFO) for asset."""
     row = conn.execute(
         "SELECT SUM(remaining_qty) FROM portfolio_trades "
-        "WHERE asset=? AND side='BUY' AND remaining_qty > 0",
-        (asset,),
+        "WHERE asset=? AND side='BUY' AND remaining_qty > ?",
+        (asset, EPS_QTY),
     ).fetchone()
-    return float(row[0] or 0.0)
+    return _clamp_dust(float(row[0] or 0.0))
 
 
 def consume_fifo(conn, asset: str, sell_trade_id: int, sell_qty: float,
@@ -76,20 +87,23 @@ def consume_fifo(conn, asset: str, sell_trade_id: int, sell_qty: float,
     """
     lots = conn.execute(
         "SELECT id, remaining_qty, price FROM portfolio_trades "
-        "WHERE asset=? AND side='BUY' AND remaining_qty > 0 "
+        "WHERE asset=? AND side='BUY' AND remaining_qty > ? "
         "ORDER BY trade_ts ASC, id ASC",
-        (asset,),
+        (asset, EPS_QTY),
     ).fetchall()
     matches: list[dict] = []
     left = sell_qty
     for lot_id, remaining, buy_price in lots:
-        if left <= 0:
+        if left <= EPS_QTY:
             break
         take = min(remaining, left)
         pnl = take * (sell_price - buy_price)
+        new_remaining = remaining - take
+        if abs(new_remaining) <= EPS_QTY:
+            new_remaining = 0.0
         conn.execute(
-            "UPDATE portfolio_trades SET remaining_qty = remaining_qty - ? WHERE id=?",
-            (take, lot_id),
+            "UPDATE portfolio_trades SET remaining_qty = ? WHERE id=?",
+            (new_remaining, lot_id),
         )
         conn.execute(
             "INSERT INTO portfolio_fifo_matches "
@@ -105,7 +119,7 @@ def consume_fifo(conn, asset: str, sell_trade_id: int, sell_qty: float,
         left -= take
     if commit:
         conn.commit()
-    if left > 1e-9:
+    if left > EPS_QTY:
         raise RuntimeError(
             f"FIFO underflow for {asset}: {left:g} unmatched "
             f"(open lots changed concurrently?)"
