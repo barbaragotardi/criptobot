@@ -354,8 +354,37 @@ def format_help() -> str:
         "Ex: /edit 3,preco,65000\n"
         "\n🗑️ /delete ID\n"
         "Apaga um registro e recalcula o FIFO.\n"
-        "Ex: /delete 3"
+        "Ex: /delete 3\n"
+        "\n🛡️ /suportes MOEDA\n"
+        "Suportes (MM30/pivot/Fib).\n"
+        "Ex: /suportes BTC"
     )
+
+
+def format_suportes(asset: str, s: dict) -> str:
+    """Compact support levels (MA30/pivot/Fib + confluence zone)."""
+    p = s.get("params", {})
+    n_short, n_long = p.get("sma_short", 30), p.get("sma_long", 200)
+    pivot, fib, swing = s["pivot"], s["fib"], s["swing"]
+    lo, hi = s["zone"]
+    lines = [f"🛡️ SUPORTES {asset} — ${s['current']:,.2f}", ""]
+    if lo and hi:
+        lines.append(f"Zona imediata: ${lo:,.0f}–${hi:,.0f}")
+    if s.get("sma_short"):
+        lines.append(f"MM{n_short}: ${s['sma_short']:,.2f}")
+    if s.get("ema_short"):
+        lines.append(f"EMA{n_short}: ${s['ema_short']:,.2f}")
+    lines.append(f"Pivot: ${pivot['p']:,.2f} · S1 ${pivot['s1']:,.2f} · S2 ${pivot['s2']:,.2f}")
+    for r in sorted(fib):
+        lines.append(f"Fib {r * 100:.1f}%: ${fib[r]:,.2f}")
+    if s.get("sma_long"):
+        lines.append(f"MM{n_long} (tendência): ${s['sma_long']:,.2f}")
+    lines.append(f"Swing: ${swing['low']:,.2f} em {swing['low_date'][:10]} → "
+                 f"${swing['high']:,.2f} em {swing['high_date'][:10]}")
+    if swing.get("fallback"):
+        lines.append("⚠️ sem perna clara, usando extremos 90d.")
+    lines.append("\n⚠️ Referência técnica, não garantia.")
+    return "\n".join(lines)
 
 
 def send_telegram(bot_token: str, chat_id: str, text: str, dry_run: bool = True) -> bool:

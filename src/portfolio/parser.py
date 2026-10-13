@@ -32,6 +32,8 @@ OLD_TROCA_RE = re.compile(
     re.IGNORECASE,
 )
 
+SUPORTES_RE = re.compile(r"^/suportes\s+([A-Za-z0-9]+)\s*$", re.IGNORECASE)
+
 
 def parse_command(text: str) -> tuple[str, str, str, float | None]:
     """Return (side, asset, hhmm, qty). qty is None when 'all' was given.
@@ -202,3 +204,13 @@ def parse_old_troca(text: str) -> tuple[str, str, object, float | None]:
     if asset_from == asset_to:
         raise ValueError("Troca precisa de dois ativos diferentes.")
     return asset_from, asset_to, parse_full_dt(m.group(3)), _validate_qty(m.group(4))
+
+
+def parse_suportes(text: str) -> str:
+    """Return asset for /suportes MOEDA. Raises ValueError."""
+    m = SUPORTES_RE.match((text or "").strip())
+    if not m:
+        raise ValueError(
+            "Formato inválido. Use: /suportes MOEDA (ex: /suportes BTC)"
+        )
+    return m.group(1).upper()

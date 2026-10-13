@@ -12,13 +12,14 @@ from src.alerts.telegram import (
     format_help,
     format_historico,
     format_sell_confirmation,
+    format_suportes,
     format_trade_confirmation,
     format_troca_confirmation,
     fmt_qty,
     get_updates,
     send_telegram,
 )
-from src.exchange.client import make_exchange, symbol_for
+from src.exchange.client import fetch_warmup, make_exchange, symbol_for
 from src.portfolio.parser import (
     parse_command,
     parse_delete,
@@ -26,9 +27,11 @@ from src.portfolio.parser import (
     parse_full_dt,
     parse_old_command,
     parse_old_troca,
+    parse_suportes,
     parse_troca,
     validate_asset,
 )
+from src.supports.calc import compute_supports
 from src.portfolio.pricing import price_at, price_at_dt
 from src.portfolio.store import (
     EPS_QTY,
@@ -113,6 +116,15 @@ def handle_text(text: str, message_id: int, conn, exchange, cfg) -> str:
     cmd = (text or "").strip()
     if cmd.lower().startswith("/help"):
         return format_help()
+
+    if cmd.lower().startswith("/suportes"):
+        asset = parse_suportes(cmd)
+        validate_asset(asset, cfg)
+        quote = cfg["system"]["quote_currency"]
+        sup = cfg.get("supports", {})
+        need = max(int(sup.get("sma_long", 200)), int(sup.get("discovery_lookback", 90))) + 10
+        df = fetch_warmup(exchange, symbol_for(asset, quote), timeframe="1d", total=need)
+        return format_suportes(asset, compute_supports(df, cfg))
 
     if cmd.lower().startswith("/extrato"):
         parts = cmd.split()

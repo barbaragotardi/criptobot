@@ -117,6 +117,15 @@ portfolio:
   enabled: true
   thresholds_percent: [5.0, 10.0]
 
+supports:
+  sma_short: 30
+  sma_long: 200
+  discovery_lookback: 90
+  fib_ratios: [0.382, 0.5, 0.618, 0.786]
+  fractal_k: 2
+  min_swing_move_percent: 10.0
+  use_wicks: true
+
 system:
   candle_closed_only: true
   cooldown_hours: 12
