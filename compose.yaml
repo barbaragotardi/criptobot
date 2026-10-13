@@ -3,6 +3,7 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
+      TZ: America/Sao_Paulo
       POSTGRES_USER: ${POSTGRES_USER:-robit}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-robit}
       POSTGRES_DB: ${POSTGRES_DB:-robit}
@@ -17,9 +18,13 @@ services:
   app:
     build: .
     restart: unless-stopped
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     env_file:
       - .env
     environment:
+      TZ: America/Sao_Paulo
       DATABASE_URL: postgresql://${POSTGRES_USER:-robit}:${POSTGRES_PASSWORD:-robit}@db:5432/${POSTGRES_DB:-robit}
     depends_on:
       db:
