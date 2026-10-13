@@ -7,13 +7,13 @@ sys.path.insert(0, ".")
 
 from src.config import load_config, setup_logging
 from src.strategy.cycle import run_cycle
-from src.strategy.state import connect
+from src.strategy.state import connect_cfg
 
 setup_logging()
 logging.getLogger().setLevel(logging.INFO)
 
 cfg = load_config()
 cfg["system"]["dry_run"] = True
-conn = connect(cfg["system"]["db_path"])
+conn = connect_cfg(cfg)
 results = run_cycle(cfg, conn)
 print("RESULTS:", results)

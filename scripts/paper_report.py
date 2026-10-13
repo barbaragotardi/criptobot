@@ -6,10 +6,10 @@ sys.path.insert(0, ".")
 
 from src.config import load_config
 from src.paper.store import list_closed, list_open
-from src.strategy.state import connect
+from src.strategy.state import connect_cfg
 
 cfg = load_config()
-conn = connect(cfg["system"]["db_path"])
+conn = connect_cfg(cfg)
 
 closed = list_closed(conn)
 print(f"CLOSED: {len(closed)}")

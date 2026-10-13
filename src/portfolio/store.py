@@ -21,21 +21,22 @@ def record_trade(conn, asset: str, side: str, trade_ts_ms: int, qty: float,
         "INSERT INTO portfolio_trades "
         "(asset, side, trade_ts, quantity, price, cost_usd, price_fallback, "
         " created_ts, telegram_message_id, remaining_qty) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
         (asset, side, trade_ts_ms, qty, price, qty * price,
          int(fallback), int(time.time()), message_id, qty),
     )
     if commit:
         conn.commit()
     log.info("Portfolio %s %s qty=%.6g @ %.2f", side, asset, qty, price)
-    return cur.lastrowid
+    row = cur.fetchone()
+    return row[0] if row else None
 
 
 def list_trades(conn, asset: str | None = None) -> list[dict]:
     q = "SELECT * FROM portfolio_trades"
     args: tuple = ()
     if asset:
-        q += " WHERE asset=?"
+        q += " WHERE asset=%s"
         args = (asset,)
     q += " ORDER BY id"
     cols = [c[0] for c in conn.execute("SELECT * FROM portfolio_trades LIMIT 0").description]
@@ -51,13 +52,13 @@ def weighted_avg(conn, asset: str, side: str) -> tuple[float, float]:
     if side == "BUY":
         row = conn.execute(
             "SELECT SUM(remaining_qty * price), SUM(remaining_qty) FROM portfolio_trades "
-            "WHERE asset=? AND side='BUY' AND remaining_qty > ?",
+            "WHERE asset=%s AND side='BUY' AND remaining_qty > %s",
             (asset, EPS_QTY),
         ).fetchone()
     else:
         row = conn.execute(
             "SELECT SUM(quantity * price), SUM(quantity) FROM portfolio_trades "
-            "WHERE asset=? AND side=?",
+            "WHERE asset=%s AND side=%s",
             (asset, side),
         ).fetchone()
     if not row or not row[1]:
@@ -72,7 +73,7 @@ def open_buy_qty(conn, asset: str) -> float:
     """Total BUY quantity still open (not consumed by FIFO) for asset."""
     row = conn.execute(
         "SELECT SUM(remaining_qty) FROM portfolio_trades "
-        "WHERE asset=? AND side='BUY' AND remaining_qty > ?",
+        "WHERE asset=%s AND side='BUY' AND remaining_qty > %s",
         (asset, EPS_QTY),
     ).fetchone()
     return _clamp_dust(float(row[0] or 0.0))
@@ -87,7 +88,7 @@ def consume_fifo(conn, asset: str, sell_trade_id: int, sell_qty: float,
     """
     lots = conn.execute(
         "SELECT id, remaining_qty, price FROM portfolio_trades "
-        "WHERE asset=? AND side='BUY' AND remaining_qty > ? "
+        "WHERE asset=%s AND side='BUY' AND remaining_qty > %s "
         "ORDER BY trade_ts ASC, id ASC",
         (asset, EPS_QTY),
     ).fetchall()
@@ -102,14 +103,14 @@ def consume_fifo(conn, asset: str, sell_trade_id: int, sell_qty: float,
         if abs(new_remaining) <= EPS_QTY:
             new_remaining = 0.0
         conn.execute(
-            "UPDATE portfolio_trades SET remaining_qty = ? WHERE id=?",
+            "UPDATE portfolio_trades SET remaining_qty = %s WHERE id=%s",
             (new_remaining, lot_id),
         )
         conn.execute(
             "INSERT INTO portfolio_fifo_matches "
             "(asset, buy_trade_id, sell_trade_id, qty, buy_price, sell_price, "
             " pnl_usd, pnl_pct, matched_ts) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (asset, lot_id, sell_trade_id, take, buy_price, sell_price,
              pnl, (sell_price - buy_price) / buy_price * 100, int(time.time())),
         )
@@ -122,7 +123,7 @@ def consume_fifo(conn, asset: str, sell_trade_id: int, sell_qty: float,
     if left > EPS_QTY:
         raise RuntimeError(
             f"FIFO underflow for {asset}: {left:g} unmatched "
-            f"(open lots changed concurrently?)"
+            f"(open lots changed concurrently%s)"
         )
     log.info("FIFO %s sell #%d matched %d lot(s)", asset, sell_trade_id, len(matches))
     return matches
@@ -131,7 +132,7 @@ def consume_fifo(conn, asset: str, sell_trade_id: int, sell_qty: float,
 def realized_pnl(conn, asset: str) -> tuple[float, float]:
     """Return (total pnl_usd, total matched qty) from FIFO matches for asset."""
     row = conn.execute(
-        "SELECT SUM(pnl_usd), SUM(qty) FROM portfolio_fifo_matches WHERE asset=?",
+        "SELECT SUM(pnl_usd), SUM(qty) FROM portfolio_fifo_matches WHERE asset=%s",
         (asset,),
     ).fetchone()
     if not row or not row[1]:
@@ -147,7 +148,7 @@ def distinct_assets(conn) -> list[str]:
 def matches_for_asset(conn, asset: str) -> list[dict]:
     cols = [c[0] for c in conn.execute("SELECT * FROM portfolio_fifo_matches LIMIT 0").description]
     rows = conn.execute(
-        "SELECT * FROM portfolio_fifo_matches WHERE asset=? ORDER BY sell_trade_id, id",
+        "SELECT * FROM portfolio_fifo_matches WHERE asset=%s ORDER BY sell_trade_id, id",
         (asset,),
     ).fetchall()
     return [dict(zip(cols, r)) for r in rows]
@@ -155,20 +156,20 @@ def matches_for_asset(conn, asset: str) -> list[dict]:
 
 def get_trade(conn, trade_id: int) -> dict | None:
     cols = [c[0] for c in conn.execute("SELECT * FROM portfolio_trades LIMIT 0").description]
-    row = conn.execute("SELECT * FROM portfolio_trades WHERE id=?", (trade_id,)).fetchone()
+    row = conn.execute("SELECT * FROM portfolio_trades WHERE id=%s", (trade_id,)).fetchone()
     return dict(zip(cols, row)) if row else None
 
 
 def delete_trade(conn, trade_id: int, commit: bool = True) -> None:
-    conn.execute("DELETE FROM portfolio_trades WHERE id=?", (trade_id,))
+    conn.execute("DELETE FROM portfolio_trades WHERE id=%s", (trade_id,))
     if commit:
         conn.commit()
 
 
 def update_trade_qty(conn, trade_id: int, qty: float, commit: bool = True) -> None:
     conn.execute(
-        "UPDATE portfolio_trades SET quantity=?, cost_usd=?*price, "
-        "alert5_sent=0, alert10_sent=0 WHERE id=?",
+        "UPDATE portfolio_trades SET quantity=%s, cost_usd=%s*price, "
+        "alert5_sent=0, alert10_sent=0 WHERE id=%s",
         (qty, qty, trade_id),
     )
     if commit:
@@ -177,8 +178,8 @@ def update_trade_qty(conn, trade_id: int, qty: float, commit: bool = True) -> No
 
 def update_trade_price(conn, trade_id: int, price: float, commit: bool = True) -> None:
     conn.execute(
-        "UPDATE portfolio_trades SET price=?, cost_usd=quantity*?, "
-        "price_fallback=0, alert5_sent=0, alert10_sent=0 WHERE id=?",
+        "UPDATE portfolio_trades SET price=%s, cost_usd=quantity*%s, "
+        "price_fallback=0, alert5_sent=0, alert10_sent=0 WHERE id=%s",
         (price, price, trade_id),
     )
     if commit:
@@ -188,8 +189,8 @@ def update_trade_price(conn, trade_id: int, price: float, commit: bool = True) -
 def update_trade_time(conn, trade_id: int, trade_ts_ms: int, price: float,
                       fallback: bool, commit: bool = True) -> None:
     conn.execute(
-        "UPDATE portfolio_trades SET trade_ts=?, price=?, cost_usd=quantity*?, "
-        "price_fallback=?, alert5_sent=0, alert10_sent=0 WHERE id=?",
+        "UPDATE portfolio_trades SET trade_ts=%s, price=%s, cost_usd=quantity*%s, "
+        "price_fallback=%s, alert5_sent=0, alert10_sent=0 WHERE id=%s",
         (trade_ts_ms, price, price, int(fallback), trade_id),
     )
     if commit:
@@ -205,13 +206,13 @@ def recompute_fifo(conn, asset: str, commit: bool = True) -> None:
     """
     sells = conn.execute(
         "SELECT id, quantity, price FROM portfolio_trades "
-        "WHERE asset=? AND side='SELL' ORDER BY trade_ts ASC, id ASC",
+        "WHERE asset=%s AND side='SELL' ORDER BY trade_ts ASC, id ASC",
         (asset,),
     ).fetchall()
-    conn.execute("DELETE FROM portfolio_fifo_matches WHERE asset=?", (asset,))
+    conn.execute("DELETE FROM portfolio_fifo_matches WHERE asset=%s", (asset,))
     conn.execute(
         "UPDATE portfolio_trades SET remaining_qty=quantity "
-        "WHERE asset=? AND side='BUY'",
+        "WHERE asset=%s AND side='BUY'",
         (asset,),
     )
     try:

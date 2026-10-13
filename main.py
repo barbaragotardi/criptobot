@@ -12,7 +12,7 @@ from src.exchange.client import make_exchange, symbol_for
 from src.paper.monitor import check_open_positions
 from src.portfolio.listener import run_listener
 from src.portfolio.monitor import check_portfolio_alerts
-from src.strategy.state import connect
+from src.strategy.state import connect_cfg
 
 log = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ def wait_for_new_candle(exchange, cfg, last_ts: int | None) -> int:
 def main() -> None:
     cfg = load_config()
     setup_logging()
-    conn = connect(cfg["system"]["db_path"])
+    conn = connect_cfg(cfg)
     exchange = make_exchange()
     log.info("robit starting (dry_run=%s)", cfg["system"].get("dry_run", True))
     if cfg.get("portfolio", {}).get("enabled", True):

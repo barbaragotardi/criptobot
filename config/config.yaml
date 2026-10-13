@@ -124,5 +124,5 @@ system:
   telegram_poll_timeout_s: 30
   timezone: America/Sao_Paulo
   quote_currency: USDT
-  db_path: data/robit.sqlite3
+  database_url: ""  # prod via $DATABASE_URL (compose); vazio = erro (sem fallback)
   dry_run: false

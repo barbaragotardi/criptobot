@@ -4,7 +4,7 @@ Simulação automática de posições abertas (V4+).
 
 ## Módulos
 
-- `store.py` — Ledger `paper_positions` (SQLite): OPEN/CLOSED com entry, exit, PnL
+- `store.py` — Ledger `paper_positions` (Postgres): OPEN/CLOSED com entry, exit, PnL
 - `monitor.py` — `check_open_positions(conn, exchange, cfg)`: fecha posições se atingem STOP ou TP
 
 ## Fluxo

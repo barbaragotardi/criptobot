@@ -32,4 +32,7 @@ def load_config(path: str | Path = CONFIG_PATH) -> dict:
         "api_key": os.getenv("COINPAPRIKA_API_KEY", ""),
         "base_url": os.getenv("COINPAPRIKA_BASE_URL", "https://api.coinpaprika.com/v1"),
     }
+    cfg["database_url"] = os.getenv("DATABASE_URL", "")
+    if not cfg["database_url"]:
+        raise RuntimeError("DATABASE_URL must be set to a postgres* URL.")
     return cfg

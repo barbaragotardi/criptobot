@@ -46,7 +46,7 @@ from src.portfolio.store import (
     update_trade_time,
     weighted_avg,
 )
-from src.strategy.state import connect as connect_db
+from src.strategy.state import connect_cfg as connect_db
 
 log = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ def get_offset(conn) -> int:
 
 def set_offset(conn, update_id: int) -> None:
     conn.execute(
-        "INSERT INTO telegram_offset (id, last_update_id) VALUES (1, ?) "
+        "INSERT INTO telegram_offset (id, last_update_id) VALUES (1, %s) "
         "ON CONFLICT(id) DO UPDATE SET last_update_id=excluded.last_update_id",
         (update_id,),
     )
@@ -301,11 +301,11 @@ def handle_text(text: str, message_id: int, conn, exchange, cfg) -> str:
 
 
 def run_listener(cfg: dict, conn, exchange=None) -> None:
-    """Blocking loop. Each thread/process must use its own sqlite connection."""
+    """Blocking loop. Each thread/process must use its own connection (Postgres)."""
     if exchange is None:
         exchange = make_exchange()
     if conn is None:
-        conn = connect_db(cfg["system"]["db_path"])
+        conn = connect_db(cfg)
     tg = cfg["telegram"]
     timeout = cfg["system"].get("telegram_poll_timeout_s", 30)
     log.info("telegram listener starting")

@@ -9,7 +9,7 @@ Lógica de trade (project.md §5): filtro → setup → risco → ciclo.
 - `pullback.py` — `detect_pullback()`: setup de pullback no 4H.
 - `risk.py` — `calc_stop*()`, `find_resistance()`, `calc_tp()`, `position_size()`, `risk_reward()`.
 - `indicators.py` — `add_indicators()`: EMAs + ATR sobre os candles.
-- `state.py` — `connect()`, `get_state()`/`set_state()`, `in_cooldown()`: persistência SQLite.
+- `state.py` — `connect_cfg()`, `get_state()`/`set_state()`, `in_cooldown()`: persistência Postgres.
 
 ## Convenções
 

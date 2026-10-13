@@ -16,7 +16,7 @@ def _thresholds(cfg: dict) -> tuple[float, float]:
 
 def _last_hit(conn, asset: str, side: str) -> float:
     row = conn.execute(
-        "SELECT last_threshold_hit FROM portfolio_alert_state WHERE asset=? AND side=?",
+        "SELECT last_threshold_hit FROM portfolio_alert_state WHERE asset=%s AND side=%s",
         (asset, side),
     ).fetchone()
     return float(row[0]) if row else 0.0
@@ -25,7 +25,7 @@ def _last_hit(conn, asset: str, side: str) -> float:
 def _set_hit(conn, asset: str, side: str, value: float) -> None:
     conn.execute(
         "INSERT INTO portfolio_alert_state (asset, side, last_threshold_hit) "
-        "VALUES (?, ?, ?) "
+        "VALUES (%s, %s, %s) "
         "ON CONFLICT(asset, side) DO UPDATE SET last_threshold_hit=excluded.last_threshold_hit",
         (asset, side, value),
     )
@@ -90,9 +90,9 @@ def check_portfolio_alerts(conn, exchange, cfg) -> list[dict]:
                                                   pct, hit, "individual")
                     if send_telegram(tg["bot_token"], tg["chat_id"], text, dry_run=dry_run):
                         if col == "alert10_sent":
-                            conn.execute("UPDATE portfolio_trades SET alert5_sent=1, alert10_sent=1 WHERE id=?", (tr["id"],))
+                            conn.execute("UPDATE portfolio_trades SET alert5_sent=1, alert10_sent=1 WHERE id=%s", (tr["id"],))
                         else:
-                            conn.execute(f"UPDATE portfolio_trades SET {col}=1 WHERE id=?", (tr["id"],))
+                            conn.execute(f"UPDATE portfolio_trades SET {col}=1 WHERE id=%s", (tr["id"],))
                         conn.commit()
                         fired.append({"asset": asset, "side": side, "scope": "individual",
                                       "trade_id": tr["id"], "threshold": hit,

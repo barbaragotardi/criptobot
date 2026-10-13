@@ -21,7 +21,7 @@ src/market/news/                  Notícias + classificação por IA.
 src/strategy/indicators.py        EMA(20/50/100/200) + ATR(14) (§6.1).
 src/strategy/filters.py           evaluate_market_filter (BTC, 1x por ciclo) + macro_pass (1D por ativo)
 src/strategy/pullback.py          detect_pullback: EMA20>EMA50 + toque na EMA20/50 (% ou ATR) no 4H
-src/strategy/state.py             Máquina de estados + SQLite (asset_state, daily_signals)
+src/strategy/state.py             Máquina de estados + Postgres (asset_state, daily_signals)
 src/confirmation/confirm.py       reversal | ema_reclaim | any (OR dos dois). Só candles fechados.
 src/strategy/risk.py              calc_stop_method (structure_atr | atr_only), find_resistance,
                                   calc_tp (TP = resistência + teto de sanidade 50%; faixa 5-10% é SÓ rótulo),
@@ -139,9 +139,9 @@ Tabelas: portfolio_trades, portfolio_alert_state, telegram_offset (offset do get
 Segurança: só processa mensagens do chat_id configurado.
 ```
 
-## Dados guardados (`data/`, não versionar run outputs)
+## Dados guardados (Postgres via `DATABASE_URL`, não versionar run outputs)
 
-- `robit.sqlite3` — estado de produção (máquina de estados, paper trading, portfólio manual).
+- Postgres — estado de produção (máquina de estados, paper trading, portfólio manual).
 
 ## Estado atual (não redescobrir)
 

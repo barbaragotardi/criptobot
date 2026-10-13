@@ -60,7 +60,7 @@ RESULTS: {'BTC': 'WATCHING', 'ETH': 'WATCHING', 'XRP': 'WATCHING',
 
 ## Estados persistidos (máquina de estados)
 
-Além do status pontual do ciclo, cada ativo tem um **estado persistente** em SQLite que sobrevive a reinicializações (`project.md` §§25–27). Fluxo normal:
+Além do status pontual do ciclo, cada ativo tem um **estado persistente** em Postgres que sobrevive a reinicializações (`project.md` §§25–27). Fluxo normal:
 
 ```
 NO_SETUP → WATCHING → ALERT_SENT → (cooldown de 12h) → NO_SETUP
@@ -113,9 +113,9 @@ poetry run python scripts/dry_run_once.py
 
 ## Estado e logs
 
-- SQLite em `data/robit.sqlite3`, tabela `asset_state`:
+- Postgres via `DATABASE_URL` (único banco; sem `DATABASE_URL` a app recusa subir), tabela `asset_state`:
   ```bash
-  sqlite3 data/robit.sqlite3 "SELECT asset, state, ema, entry, stop, tp, rr FROM asset_state ORDER BY asset;"
+  psql "$DATABASE_URL" -c "SELECT asset, state, ema, entry, stop, tp, rr FROM asset_state ORDER BY asset;"
   ```
 - Logs seguem o formato da seção 37 do `project.md`:
   ```
