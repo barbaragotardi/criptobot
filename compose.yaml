@@ -6,9 +6,12 @@ services:
     restart: unless-stopped
     environment:
       TZ: America/Sao_Paulo
+      PGTZ: America/Sao_Paulo
       POSTGRES_USER: ${POSTGRES_USER:-robit}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-robit}
       POSTGRES_DB: ${POSTGRES_DB:-robit}
+    # Override postgresql.conf herdado do pgdata (initdb antigo em UTC).
+    command: ["postgres", "-c", "timezone=America/Sao_Paulo", "-c", "log_timezone=America/Sao_Paulo"]
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:

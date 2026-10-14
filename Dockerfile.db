@@ -1,5 +1,8 @@
 FROM postgres:16-alpine
 
+# tzdata lets TZ=America/Sao_Paulo take effect on musl (log + `date`).
+RUN apk add --no-cache tzdata
+
 # pgvector from source (pinned). Same musl base -> pgdata volume stays compatible.
 ARG PGVECTOR_TAG=v0.8.0
 RUN apk add --no-cache --virtual .build-deps build-base git postgresql-dev \

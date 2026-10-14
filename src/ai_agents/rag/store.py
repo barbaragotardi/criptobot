@@ -15,7 +15,7 @@ def ingest_once(conn, cfg: dict) -> dict:
 
     stats = {"fetched": 0, "new": 0, "embedded": 0}
     try:
-        articles = fetch_news()
+        articles = fetch_news(cfg=cfg)
     except Exception as e:
         log.warning("news ingest fetch failed: %s", e)
         return stats

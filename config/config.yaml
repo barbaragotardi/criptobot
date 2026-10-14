@@ -151,13 +151,31 @@ ai:
     XRP: ["Ripple", "XRP"]
     SOL: ["Solana", "SOL"]
     LINK: ["Chainlink", "LINK"]
+    XLM: ["Stellar", "XLM"]
+    BCH: ["Bitcoin Cash", "BCH"]
+    NEAR: ["NEAR Protocol", "NEAR"]
+    UNI: ["Uniswap", "UNI"]
+    LTC: ["Litecoin", "LTC"]
+    AVAX: ["Avalanche", "AVAX"]
+    AAVE: ["Aave", "AAVE"]
+    QNT: ["Quant", "QNT"]
+    ATOM: ["Cosmos", "ATOM"]
     ADA: ["Cardano", "ADA"]
+    HBAR: ["Hedera", "HBAR"]
     DOT: ["Polkadot", "DOT"]
-    BNB: ["Binance", "BNB"]
-    DOGE: ["Dogecoin", "DOGE"]
+    ETC: ["Ethereum Classic", "ETC"]
+    POL: ["Polygon", "POL"]
+    ALGO: ["Algorand", "ALGO"]
+    ARB: ["Arbitrum", "ARB"]
+    TIA: ["Celestia", "TIA"]
+    XTZ: ["Tezos", "XTZ"]
+    IMX: ["Immutable", "IMX"]
+    GRT: ["The Graph", "GRT"]
+    OP: ["Optimism", "OP"]
+    LDO: ["Lido", "LDO"]
   observability:
     langfuse:
-      enabled: false
+      enabled: true
 
 system:
   candle_closed_only: true
