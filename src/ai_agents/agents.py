@@ -43,7 +43,7 @@ def _dedup(items: list[str], limit: int) -> list[str]:
 
 
 def run_news(conn, cfg, snippets: list[dict]) -> NewsView:
-    from src.ai_agents.llm import complete_structured, strip_numbered
+    from src.ai_agents.llm import complete_structured
     if not snippets:
         return NewsView()
     lines = [f"[{s['id']}] {s['source']}: {s['title']} — {s['summary']}" for s in snippets]
@@ -52,8 +52,6 @@ def run_news(conn, cfg, snippets: list[dict]) -> NewsView:
     known = {s["id"] for s in snippets} | {s["id"][:8] for s in snippets}
     v = parsed.validated({s["id"] for s in snippets} | known)
     rationale = (v.rationale or "")[:140]
-    if rationale and not strip_numbered([rationale]):
-        rationale = ""
     return NewsView(sentiment=v.sentiment,
                     catalysts=_dedup(v.catalysts, 5),
                     risks=_dedup(v.risks, 5),
@@ -70,11 +68,11 @@ def run_risk(conn, cfg, facts: str) -> RiskView:
 
 
 def run_chief(conn, cfg, news: NewsView, risk: RiskView, asset: str, state: str) -> Briefing:
-    from src.ai_agents.llm import complete_structured, strip_numbered
+    from src.ai_agents.llm import complete_structured
     user = (f"Ativo {asset} estado {state}. News: {news.model_dump_json()}."
             f" Risk: {risk.model_dump_json()}. Gere o briefing.")
     parsed, _ = complete_structured(conn, cfg, "chief_advisor", Briefing, CHIEF_SYS, user)
-    bullets = [b[:140] for b in strip_numbered(parsed.bullets)][:6]
+    bullets = [b[:140] for b in (parsed.bullets or []) if b][:6]
     return Briefing(tone=parsed.tone, bullets=bullets)
 
 
