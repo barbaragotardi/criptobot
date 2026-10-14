@@ -1,14 +1,14 @@
 # Arquitetura do Robit
 
 Bot de alertas de swing trade cripto (spot, sem alavancagem, **não executa ordens**).
-Especificação de negócio: `project.md`. Estado do projeto e achados: `README.md`.
+Estado do projeto e achados: `README.md`.
 
 ## Mapa de módulos
 
 ```
 main.py                           Loop contínuo: a cada novo candle 15m fechado, roda 1 ciclo
 src/config/loader.py              Lê config/config.yaml + .env (TELEGRAM_BOT_TOKEN/CHAT_ID)
-src/config/logging.py             Logs no formato "[INFO] ..." (§37 do project.md)
+src/config/logging.py             Logs no formato "[INFO] ..."
 
 src/exchange/client.py            Wrapper ccxt/Binance (só leitura). fetch_ohlcv / fetch_warmup.
                                   Sempre descarta o último candle (possivelmente aberto).
@@ -18,7 +18,7 @@ src/market/providers/coinmktcap/  Preço atual + métricas globais. + fallback p
 src/market/providers/coinpaprika/ Preço + variações granulares (15m–24h) + beta + supply.
 src/market/news/                  Notícias + classificação por IA.
 
-src/strategy/indicators.py        EMA(20/50/100/200) + ATR(14) (§6.1).
+src/strategy/indicators.py        EMA(20/50/100/200) + ATR(14).
 src/strategy/filters.py           evaluate_market_filter (BTC, 1x por ciclo) + macro_pass (1D por ativo)
 src/strategy/pullback.py          detect_pullback: EMA20>EMA50 + toque na EMA20/50 (% ou ATR) no 4H
 src/strategy/state.py             Máquina de estados + Postgres (asset_state, daily_signals)
@@ -26,12 +26,12 @@ src/confirmation/confirm.py       reversal | ema_reclaim | any (OR dos dois). S�
 src/strategy/risk.py              calc_stop_method (structure_atr | atr_only), find_resistance,
                                   calc_tp (TP = resistência + teto de sanidade 50%; faixa 5-10% é SÓ rótulo),
                                   risk_reward, position_size
-src/exposure/manager.py           Caps de exposição (raramente ligam; ver Limitações).
-                                  V4: contam posições paper OPEN (não mais estados WATCHING).
-src/alerts/telegram.py            Template do alerta (§28) + envio (dry_run suprime).
-                                  + format_paper_open/format_paper_close (V4, mensagens curtas)
-src/strategy/cycle.py             evaluate_asset: pipeline completo por ativo (ordem §5 do project.md).
-                                  run_cycle: após cada SIGNAL abre posição virtual (V4, _open_paper_position).
+src/exposure/manager.py           Caps de exposição (raramente ligam).
+                                  Contam posições paper OPEN.
+src/alerts/telegram.py            Template do alerta + envio (dry_run suprime).
+                                  + format_paper_open/format_paper_close (mensagens curtas)
+src/strategy/cycle.py             evaluate_asset: pipeline completo por ativo (ordem do pipeline).
+                                  run_cycle: após cada SIGNAL abre posição virtual (_open_paper_position).
                                   Auto-rearme: INVALIDATED volta p/ NO_SETUP no próximo ciclo;
                                   ALERT_SENT volta p/ NO_SETUP após expirar o cooldown.
 src/paper/store.py                Ledger virtual (tabela paper_positions): open/close/list/count.
@@ -40,10 +40,27 @@ src/paper/store.py                Ledger virtual (tabela paper_positions): open/
 src/paper/monitor.py              check_open_positions: cada posição OPEN contra o último candle
                                   15m fechado (fetch_ohlcv já exclui candle aberto).
                                   Empate STOP+TP no mesmo candle → STOP (conservador).
-                                  Sem timeout: OPEN até TP/STOP real (decisão V4).
+                                  Sem timeout: OPEN até TP/STOP real.
+src/supports/calc.py              compute_supports: MM30/EMA30, pivot diário (S1/S2), Fibonacci
+                                  com âncoras de swing por fractal (comando /suportes).
+src/ai_agents/council.py          run_council (síncrono, nunca levanta) + submit (background,
+                                  conexão própria, pool de 2 threads). Só roda após SIGNAL.
+src/ai_agents/agents.py           run_news/run_risk (paralelo) → run_chief (join) + run_diagnostician.
+                                  Prompts pt-BR; saída sempre via schemas.py.
+src/ai_agents/schemas.py          NewsView, RiskView, Briefing, AssetDiagnosis (SCHEMA_VERSION=1).
+src/ai_agents/llm.py              complete_structured via LiteLLM (Haiku, sem fallback) + log_call.
+                                  1 tentativa + 1 repair retry; depois disso, fail-open.
+src/ai_agents/context.py          setup_facts/portfolio_facts/command_allowed (determinístico, sem LLM).
+src/ai_agents/diagnose.py         diagnose_text p/ /analyze (só leitura: filtros + pullback + suportes).
+src/ai_agents/rag/store.py        ingest_once: RSS → parse → classify → persiste → embeda NULLs em
+                                  lotes de 50 → prune por retenção. Nunca levanta.
+src/ai_agents/rag/embed.py        embed_texts/embed_query via google-genai nativo (gemini-embedding-2,
+                                  output_dimensionality=768, RETRIEVAL_DOCUMENT/QUERY).
+src/ai_agents/rag/retrieve.py     retrieve → (snippets, mode): `vector` (cosseno + cutoff + dedup)
+                                  ou `sql` (ILIKE por alias + recência) se o embedding falhar.
 ```
 
-## Reorganização V5 (mai/2024+)
+## Organização dos módulos
 
 Separação clara entre **dados** (market) e **lógica** (strategy):
 - `src/market/`: fontes de preço (CoinGecko, CMC, Paprika) + notícias
@@ -53,7 +70,7 @@ Separação clara entre **dados** (market) e **lógica** (strategy):
 
 Ver `src/market/README.md` e `src/strategy/README.md` para convenções.
 
-## V4 — Paper trading (ordem invertida vs project.md: V4 antes da V3)
+## Paper trading
 
 ```
 run_cycle → SIGNAL → _open_paper_position (auto, fire-and-forget, saldo fixo risk.*)
@@ -63,10 +80,35 @@ scripts/paper_report.py → lista CLOSED (com PnL) + OPEN
 
 - Config: `paper_trading.enabled` (default true p/ compat com configs antigas).
 - Alertas: SIGNAL (existente) + PAPER ABERTA + PAPER FECHADA (com PnL).
-- Dívida conhecida: sem V3, priorização de exposição em empate segue ordem da lista
-  de ativos; limites (15/15) raramente ligam de qualquer forma.
-- Critério p/ V3: ~30+ sinais reais fechados no ledger (abaixo disso, score/ranking
-  são ruído). Com ~1 alerta/ativo/semestre, esperar ~1-2 anos de V4.
+- Dívida conhecida: sem ranking de sinais, a priorização em empate de exposição segue
+  a ordem da lista de ativos; limites (15/15) raramente ligam de qualquer forma.
+- Critério p/ ranking: ~30+ sinais reais fechados no ledger (abaixo disso, score/ranking
+  são ruído). Com ~1 alerta/ativo/semestre, esperar ~1-2 anos.
+
+## AI Trade Council (camada qualitativa, advisory apenas)
+
+```
+run_cycle → SIGNAL (alerta + ALERT_SENT inalterados) → council.submit (fire-and-forget)
+  → run_council: facts (código) + retrieve (rag) → news+risk (paralelo) → chief (join)
+  → follow-up "🧠 Contexto IA" via Telegram → council_reports + ai_calls
+main.py (thread daemon news-ingest) → ingest_once a cada ai.rag.ingest_interval_min (mín 600s)
+scripts/council_once.py --asset X [--fake] · scripts/rag_probe.py ASSET [--days N] [--top K]
+scripts/smoke_ai.py (Haiku schema + embedding, com custo) · scripts/ai_report.py (custo/latência)
+```
+
+- Config: bloco `ai:` (enabled, model, timeout, max_tokens, temperature, max_calls_per_day,
+  command_cooldown_s, embedding_model, embedding_dim, rag.*, asset_aliases). Chaves via
+  `.env` (`ANTHROPIC_API_KEY`, `GEMINI_API_KEY`). Default `enabled: false` = comportamento idêntico ao anterior.
+- Fail-open: timeout, JSON inválido após 1 repair, cooldown/cap estourado → log + `ok=0`, sem follow-up.
+  O council nunca veta sinal nem recalcula Entry/Stop/TP/R:R.
+- Comandos: `/dossier MOEDA [dias]` (retrieval até 30d) e `/analyze MOEDA` (diagnose técnico +
+  narrador). Ambos com `validate_asset`, chat-id check, cooldown e cap diário.
+- Banco: `Dockerfile.db` (postgres:16-alpine + pgvector compilado com `with_llvm=no`, mesmo
+  volume `pgdata`). `make update` só rebuilda o app; db novo exige `docker compose build db`
+  + `up -d db` (com `make backup` antes). Sem a extensão, o RAG degrada p/ SQL, nunca quebra.
+- Dívida conhecida: thresholds (`min_similarity`, near-dup) são chutes iniciais — calibrar com
+  `rag_probe.py` quando o corpus tiver alguns dias. Comparar briefings × desfechos do paper
+  só faz sentido com ~30+ sinais fechados (mesmo critério do ranking de sinais).
 
 ## Pipeline de um ciclo (`evaluate_asset`)
 
@@ -91,7 +133,14 @@ INVALIDATED | TIMEOUT | COOLDOWN | SEND_FAILED | ERROR` (detalhes no README).
 4. **TP sem teto de 10%**: `preferred_max_percent` é só classificação
    (`FAIXA PREFERENCIAL` / `ACIMA DA FAIXA PREFERENCIAL`); teto real é `max_tp_percent: 50`.
 5. **Janela de confirmação (16) = 1 candle 4H**; o toque 4H só muda a cada 4h, então cada
-   episódio tem ~1 janela efetiva. `pullback_low` é fixado na entrada em WATCHING (janela de 6×4H).
+    episódio tem ~1 janela efetiva. `pullback_low` é fixado na entrada em WATCHING (janela de 6×4H).
+6. **LLM nunca emite números** — `$`, `%` e dígitos longos em texto do modelo disparam repair
+    e depois descarte (`llm.py:strip_numbered`); números no Telegram vêm só dos facts do código.
+7. **Vetores não são comparáveis entre modelos** — cada linha guarda `embedding_model`/`embedding_dim`;
+    trocar de modelo exige re-embed deliberado. Coluna `vector(768)` + HNSW só existem com
+    `ai.enabled: true`; sem a extensão pgvector, tudo degrada p/ SQL silenciosamente.
+8. **Cada thread usa sua própria conexão** — `council.submit` e `news-ingest` abrem conexões
+    próprias (`connect_cfg`); nunca reutilizar a `conn` do loop principal no background.
 
 ## Portfólio manual via Telegram (ortogonal ao motor de sinais)
 
@@ -99,7 +148,8 @@ INVALIDATED | TIMEOUT | COOLDOWN | SEND_FAILED | ERROR` (detalhes no README).
 main.py (thread daemon telegram-listener) → run_listener (getUpdates long-poll)
   → handle_text: /compra MOEDA,HH:MM,QTD | /venda ... | /troca DE,PARA,HH:MM,QTD
                  | /old_compra|/old_venda MOEDA,DD-MM-AAAA-HH:MM,QTD | /old_troca ...
-                 | /extrato [MOEDA] | /historico [MOEDA]
+                 | /extrato [MOEDA] | /historico [MOEDA] | /suportes MOEDA
+                 | /dossier MOEDA [dias] | /analyze MOEDA (só com ai.enabled)
                  | /edit ID,CAMPO,VALOR (hora: HH:MM ou DD-MM-AAAA-HH:MM)
                  | /delete ID | /help
 src/portfolio/parser.py    parse_command + parse_troca + parse_old_command + parse_old_troca
@@ -142,6 +192,8 @@ Segurança: só processa mensagens do chat_id configurado.
 ## Dados guardados (Postgres via `DATABASE_URL`, não versionar run outputs)
 
 - Postgres — estado de produção (máquina de estados, paper trading, portfólio manual).
+- Com IA ligada: `news_articles` (RSS + `embedding vector(768)` + índice HNSW),
+  `council_reports` (briefings + `ok`/`error`), `ai_calls` (latência, tokens, custo por agente).
 
 ## Estado atual (não redescobrir)
 

@@ -1,6 +1,8 @@
-"""Telegram alert: template from project.md section 28."""
+"""Telegram alert template."""
 
 import logging
+from html import escape as _esc
+
 import requests
 
 log = logging.getLogger(__name__)
@@ -357,7 +359,13 @@ def format_help() -> str:
         "Ex: /delete 3\n"
         "\n🛡️ /suportes MOEDA\n"
         "Suportes (MM30/pivot/Fib).\n"
-        "Ex: /suportes BTC"
+        "Ex: /suportes BTC\n"
+        "\n📰 /dossier MOEDA [dias]\n"
+        "Notícias recentes (até 30d).\n"
+        "Ex: /dossier SOL 7\n"
+        "\n🔍 /analyze MOEDA\n"
+        "Por que o motor observa (ou não) o ativo.\n"
+        "Ex: /analyze SOL"
     )
 
 
@@ -384,6 +392,55 @@ def format_suportes(asset: str, s: dict) -> str:
     if swing.get("fallback"):
         lines.append("⚠️ sem perna clara, usando extremos 90d.")
     lines.append("\n⚠️ Referência técnica, não garantia.")
+    return "\n".join(lines)
+
+
+def format_council(res: dict) -> str:
+    """Follow-up briefing. Numbers come from code facts only, never from the LLM."""
+    b = (res.get("briefing") or {})
+    n = (res.get("news") or {})
+    r = (res.get("risk") or {})
+    setup = res.get("setup", {})
+    lines = [f"🧠 Contexto IA · {_esc(str(res.get('asset', '')))} (não é recomendação)", ""]
+    tone = {"supportive": "tom: sem alertas adicionais", "neutral": "tom: neutro",
+            "caution": "tom: cautela"}.get(b.get("tone", "neutral"), "")
+    if tone:
+        lines.append(tone)
+    for x in (b.get("bullets") or [])[:6]:
+        lines.append(f"• {_esc(str(x))}")
+    if n.get("sentiment") and n.get("sentiment") != "neutral":
+        lines.append(f"Notícias: {_esc(str(n['sentiment']))} (confiança {_esc(str(n.get('confidence', 'low')))})")
+    for x in (n.get("risks") or [])[:3]:
+        lines.append(f"⚠️ {_esc(str(x))}")
+    if (r.get("concentration")) in ("high", "medium"):
+        lines.append(f"Concentração: {_esc(str(r['concentration']))}")
+    for x in (r.get("notes") or [])[:3]:
+        lines.append(f"• {_esc(str(x))}")
+    if setup.get("news_mode") == "sql":
+        lines.append("(busca vetorial indisponível; fallback por palavra-chave)")
+    lines.append("\n⚠️ Contexto gerado por IA, pode errar. Decisão é sua.")
+    return "\n".join(lines)
+
+
+def format_dossier(asset: str, snippets: list[dict], mode: str, days: int) -> str:
+    if not snippets:
+        return f"📰 DOSSIÊ {_esc(asset)} · {days}d\n\n📭 Sem notícias relevantes no período."
+    lines = [f"📰 DOSSIÊ {_esc(asset)} · {days}d ({_esc(mode)})", ""]
+    for s in snippets[:10]:
+        lines.append(f"• {_esc(s['title'])} ({_esc(s['source'])})")
+    lines.append("\n⚠️ Resumo de notícias, não recomendação.")
+    return "\n".join(lines)
+
+
+def format_diagnosis(asset: str, facts: str, narrative) -> str:
+    lines = [f"🔍 ANÁLISE {_esc(asset)}", "", f"Técnico: {_esc(facts)}"]
+    if narrative is not None:
+        lines.append(f"Resumo: {_esc(narrative.state_summary)}")
+        for x in (narrative.blockers or [])[:5]:
+            lines.append(f"⛔ {_esc(str(x))}")
+        for x in (narrative.watchers or [])[:5]:
+            lines.append(f"👀 {_esc(str(x))}")
+    lines.append("\n⚠️ Leitura técnica + IA, não recomendação.")
     return "\n".join(lines)
 
 

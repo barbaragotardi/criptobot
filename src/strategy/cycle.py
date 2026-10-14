@@ -1,4 +1,4 @@
-"""One analysis cycle: market filter (once) -> per-asset pipeline (project.md section 5)."""
+"""One analysis cycle: market filter (once) -> per-asset pipeline (see README)."""
 
 import logging
 import time
@@ -61,7 +61,7 @@ def evaluate_asset(asset: str, frames: dict, market_status: dict, conn, cfg: dic
         if action == "BLOCK":
             log.info("%s - NO TRADE (market bearish, BLOCK)", asset)
             return "NO_TRADE"
-        log.info("%s - market bearish, action=%s (proceeding, V1 logs only)", asset, action)
+        log.info("%s - market bearish, action=%s (proceeding, log only)", asset, action)
 
     df_1d, df_4h, df_15m = frames["1D"], frames["4H"], frames["15m"]
 
@@ -105,7 +105,7 @@ def evaluate_asset(asset: str, frames: dict, market_status: dict, conn, cfg: dic
         )
         state = get_state(conn, asset)
 
-    # --- Confirmation 15m (V1: only after fresh touch; state WATCHING required) ---
+    # --- Confirmation 15m (only after fresh touch; state WATCHING required) ---
     if state["state"] not in ("WATCHING", "TOUCHED_EMA"):
         return "WATCHING"
     confirmed, conf_reason = confirm(
@@ -177,6 +177,12 @@ def run_cycle(cfg: dict, conn, exchange=None) -> dict[str, str]:
             results[asset] = res
             if res == "SIGNAL" and paper_enabled(cfg):
                 _open_paper_position(conn, asset, market_status, cfg)
+            if res == "SIGNAL":
+                try:
+                    from src.ai_agents.council import submit as council_submit
+                    council_submit(asset, cfg)
+                except Exception as e:
+                    log.warning("%s - council submit failed: %s", asset, e)
         except Exception as e:
             log.error("%s - cycle error: %s", asset, e)
             results[asset] = "ERROR"
@@ -184,7 +190,7 @@ def run_cycle(cfg: dict, conn, exchange=None) -> dict[str, str]:
 
 
 def _open_paper_position(conn, asset: str, market_status: dict, cfg: dict) -> None:
-    """V4: every SIGNAL opens a virtual position (fire-and-forget). Dedup: 1 OPEN per asset."""
+    """Every SIGNAL opens a virtual position (fire-and-forget). Dedup: 1 OPEN per asset."""
     now_ms = int(time.time() * 1000)
     st = get_state(conn, asset)
     entry_eff = apply_entry(st["entry"], cfg)

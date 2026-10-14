@@ -1,6 +1,6 @@
 # Paper Trading
 
-Simulação automática de posições abertas (V4+).
+Simulação automática de posições abertas.
 
 ## Módulos
 

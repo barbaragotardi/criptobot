@@ -34,6 +34,9 @@ OLD_TROCA_RE = re.compile(
 
 SUPORTES_RE = re.compile(r"^/suportes\s+([A-Za-z0-9]+)\s*$", re.IGNORECASE)
 
+DOSSIER_RE = re.compile(r"^/dossier\s+([A-Za-z0-9]+)(?:\s+(\d{1,2}))?\s*$", re.IGNORECASE)
+ANALYZE_RE = re.compile(r"^/analyze\s+([A-Za-z0-9]+)\s*$", re.IGNORECASE)
+
 
 def parse_command(text: str) -> tuple[str, str, str, float | None]:
     """Return (side, asset, hhmm, qty). qty is None when 'all' was given.
@@ -213,4 +216,23 @@ def parse_suportes(text: str) -> str:
         raise ValueError(
             "Formato inválido. Use: /suportes MOEDA (ex: /suportes BTC)"
         )
+    return m.group(1).upper()
+
+
+def parse_dossier(text: str) -> tuple[str, int]:
+    """Return (asset, days). Days default 7, max 30. Raises ValueError."""
+    m = DOSSIER_RE.match((text or "").strip())
+    if not m:
+        raise ValueError("Formato inválido. Use: /dossier MOEDA [dias] (ex: /dossier SOL 7)")
+    days = int(m.group(2)) if m.group(2) else 7
+    if days < 1 or days > 30:
+        raise ValueError("Dias deve ser entre 1 e 30.")
+    return m.group(1).upper(), days
+
+
+def parse_analyze(text: str) -> str:
+    """Return asset for /analyze MOEDA. Raises ValueError."""
+    m = ANALYZE_RE.match((text or "").strip())
+    if not m:
+        raise ValueError("Formato inválido. Use: /analyze MOEDA (ex: /analyze SOL)")
     return m.group(1).upper()

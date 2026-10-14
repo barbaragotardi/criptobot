@@ -44,6 +44,10 @@ def main() -> None:
         t = threading.Thread(target=run_listener, args=(cfg, None),
                              daemon=True, name="telegram-listener")
         t.start()
+    if cfg.get("ai", {}).get("enabled") and cfg.get("ai", {}).get("rag", {}).get("enabled", True):
+        t2 = threading.Thread(target=_news_ingest_loop, args=(cfg,),
+                              daemon=True, name="news-ingest")
+        t2.start()
     last_ts = None
     while True:
         last_ts = wait_for_new_candle(exchange, cfg, last_ts)
@@ -67,6 +71,27 @@ def main() -> None:
         except Exception as e:
             log.error("Cycle failed: %s", e)
             time.sleep(60)
+
+
+def _news_ingest_loop(cfg: dict) -> None:
+    """Daemon: RSS -> news_articles every ingest_interval_min. Never raises."""
+    import time
+    interval = int(cfg.get("ai", {}).get("rag", {}).get("ingest_interval_min", 60)) * 60
+    while True:
+        try:
+            conn = connect_cfg(cfg)
+            try:
+                from src.ai_agents.rag.store import ingest_once
+                stats = ingest_once(conn, cfg)
+                log.info("news ingest: %s", stats)
+            finally:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+        except Exception as e:
+            log.warning("news ingest loop failed: %s", e)
+        time.sleep(max(interval, 600))
 
 
 if __name__ == "__main__":

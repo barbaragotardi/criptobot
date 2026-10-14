@@ -126,6 +126,36 @@ supports:
   min_swing_move_percent: 10.0
   use_wicks: true
 
+ai:
+  enabled: true
+  model: "anthropic/claude-haiku-4-5-20251001"
+  timeout_s: 40
+  max_tokens: 800
+  temperature: 0.0
+  max_calls_per_day: 50
+  command_cooldown_s: 60
+  embedding_model: "gemini-embedding-2"
+  embedding_dim: 768
+  rag:
+    enabled: true
+    news_max_age_hours: 48
+    max_headlines: 12
+    min_similarity: 0.30
+    near_dup_similarity: 0.92
+    retention_days: 365
+    ingest_interval_min: 60
+    max_days_dossier: 30
+  asset_aliases:
+    BTC: ["Bitcoin", "BTC"]
+    ETH: ["Ethereum", "ETH"]
+    XRP: ["Ripple", "XRP"]
+    SOL: ["Solana", "SOL"]
+    LINK: ["Chainlink", "LINK"]
+    ADA: ["Cardano", "ADA"]
+    DOT: ["Polkadot", "DOT"]
+    BNB: ["Binance", "BNB"]
+    DOGE: ["Dogecoin", "DOGE"]
+
 system:
   candle_closed_only: true
   cooldown_hours: 12

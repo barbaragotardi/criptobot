@@ -1,4 +1,4 @@
-"""15m confirmation: closed candles only, configurable reversal rule (V1: 1 rule)."""
+"""15m confirmation: closed candles only, configurable reversal rule."""
 
 import pandas as pd
 

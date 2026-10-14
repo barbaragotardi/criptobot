@@ -1,6 +1,6 @@
 """Risk engine: stop (structure+ATR), resistance, TP, R/R, target class, sizing."""
 
-# --- Stop: stop = pullback_low - ATR*K (project.md section 17) ---
+# --- Stop: stop = pullback_low - ATR*K ---
 def calc_stop(pullback_low: float, atr: float, atr_multiplier: float) -> float:
     return pullback_low - atr * atr_multiplier
 
@@ -11,7 +11,7 @@ def calc_stop_method(method: str, entry: float, pullback_low: float, atr: float,
     return calc_stop(pullback_low, atr, atr_multiplier)
 
 
-# --- Resistance: max high of last N 4H candles (V1 proxy, section 18) ---
+# --- Resistance: max high of last N 4H candles ---
 def find_resistance(df_4h, lookback: int) -> float:
     return float(df_4h.iloc[-lookback:]["high"].max())
 

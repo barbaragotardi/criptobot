@@ -1,4 +1,4 @@
-"""V4 paper trading ledger: virtual OPEN/CLOSED positions in Postgres.
+"""Paper trading ledger: virtual OPEN/CLOSED positions in Postgres.
 
 Entry is stored cost-adjusted (apply_entry).
 """

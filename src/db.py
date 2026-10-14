@@ -90,6 +90,46 @@ CREATE TABLE IF NOT EXISTS telegram_offset (
   id BIGINT PRIMARY KEY CHECK (id = 1),
   last_update_id BIGINT NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS news_articles (
+  id TEXT PRIMARY KEY,
+  source TEXT NOT NULL DEFAULT '',
+  title TEXT NOT NULL DEFAULT '',
+  summary TEXT NOT NULL DEFAULT '',
+  url TEXT NOT NULL DEFAULT '',
+  published_at TIMESTAMPTZ,
+  category TEXT NOT NULL DEFAULT 'general',
+  tags TEXT[] NOT NULL DEFAULT '{}',
+  fetched_ts BIGINT NOT NULL DEFAULT 0,
+  embedding TEXT,
+  embedding_model TEXT,
+  embedding_dim BIGINT
+);
+CREATE INDEX IF NOT EXISTS idx_news_published ON news_articles(published_at);
+CREATE TABLE IF NOT EXISTS council_reports (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  asset TEXT NOT NULL,
+  ts BIGINT NOT NULL,
+  setup_json TEXT NOT NULL DEFAULT '{}',
+  news_json TEXT NOT NULL DEFAULT '{}',
+  risk_json TEXT NOT NULL DEFAULT '{}',
+  briefing_json TEXT NOT NULL DEFAULT '{}',
+  model TEXT NOT NULL DEFAULT '',
+  ok BIGINT NOT NULL DEFAULT 0,
+  error TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_council_asset ON council_reports(asset);
+CREATE TABLE IF NOT EXISTS ai_calls (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  ts BIGINT NOT NULL,
+  agent TEXT NOT NULL,
+  model TEXT NOT NULL DEFAULT '',
+  latency_ms BIGINT NOT NULL DEFAULT 0,
+  prompt_tokens BIGINT NOT NULL DEFAULT 0,
+  completion_tokens BIGINT NOT NULL DEFAULT 0,
+  cost_usd DOUBLE PRECISION NOT NULL DEFAULT 0,
+  ok BIGINT NOT NULL DEFAULT 0,
+  error TEXT NOT NULL DEFAULT ''
+);
 """
 
 
@@ -104,12 +144,49 @@ def resolve_database_url(cfg: dict) -> str:
     return str(sys_cfg.get("database_url", "") or "")
 
 
-def ensure_schema(conn) -> None:
+def ensure_schema(conn, ai_enabled: bool = False, embedding_dim: int = 768) -> None:
     for stmt in SCHEMA.split(";"):
         if stmt.strip():
             conn.execute(stmt)
     conn.commit()
     _migrate_portfolio_remaining_qty(conn)
+    if ai_enabled:
+        _migrate_ai_vector(conn, embedding_dim)
+
+
+def _migrate_ai_vector(conn, embedding_dim: int) -> None:
+    """CREATE EXTENSION vector + embedding vector column. Fail loud on mismatch."""
+    import logging
+    log = logging.getLogger(__name__)
+    try:
+        conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        log.warning("pgvector extension unavailable, RAG falls back to SQL: %s", e)
+        return
+    row = conn.execute(
+        "SELECT data_type, udt_name FROM information_schema.columns "
+        "WHERE table_name='news_articles' AND column_name='embedding'"
+    ).fetchone()
+    if row and row[0] == "USER-DEFINED":
+        return  # vector column already created by a previous run
+    # Fresh table (TEXT placeholder above) -> convert to vector(dim).
+    if row and row[0] == "text":
+        conn.execute(
+            f"ALTER TABLE news_articles ALTER COLUMN embedding TYPE vector({int(embedding_dim)}) "
+            "USING CASE WHEN embedding IS NULL THEN NULL ELSE embedding::vector END"
+        )
+        conn.commit()
+    try:
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_news_embedding "
+            "ON news_articles USING hnsw (embedding vector_cosine_ops)"
+        )
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        log.warning("hnsw index skipped: %s", e)
 
 
 def _migrate_portfolio_remaining_qty(conn) -> None:
@@ -144,5 +221,7 @@ def get_conn(cfg: dict):
     import psycopg  # lazy: keeps import cost off module load
 
     conn = psycopg.connect(url)
-    ensure_schema(conn)
+    ai = cfg.get("ai", {}) if isinstance(cfg.get("ai"), dict) else {}
+    ensure_schema(conn, ai_enabled=bool(ai.get("enabled", False)),
+                  embedding_dim=int(ai.get("embedding_dim", 768)))
     return conn

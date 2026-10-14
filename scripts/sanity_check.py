@@ -1,4 +1,4 @@
-"""Sanity checks reproducing project.md numeric examples (sections 20, 22)."""
+"""Sanity checks for risk calculations with reference numeric examples."""
 
 import sys
 

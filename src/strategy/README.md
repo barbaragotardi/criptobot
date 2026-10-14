@@ -1,6 +1,6 @@
 # Strategy
 
-Lógica de trade (project.md §5): filtro → setup → risco → ciclo.
+Lógica de trade: filtro → setup → risco → ciclo.
 
 ## Estrutura
 

@@ -1,0 +1,9 @@
+FROM postgres:16-alpine
+
+# pgvector from source (pinned). Same musl base -> pgdata volume stays compatible.
+ARG PGVECTOR_TAG=v0.8.0
+RUN apk add --no-cache --virtual .build-deps build-base git postgresql-dev \
+    && git clone --branch ${PGVECTOR_TAG} --depth 1 https://github.com/pgvector/pgvector.git /tmp/pgvector \
+    && cd /tmp/pgvector && make with_llvm=no && make with_llvm=no install \
+    && rm -rf /tmp/pgvector \
+    && apk del .build-deps

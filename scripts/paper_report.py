@@ -1,4 +1,4 @@
-"""Paper trading performance report (V4): closed/open positions."""
+"""Paper trading performance report: closed/open positions."""
 
 import sys
 

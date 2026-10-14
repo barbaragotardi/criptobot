@@ -13,6 +13,7 @@ src/
 ├── portfolio/         Gerenciador manual de trades via Telegram
 ├── paper/             Paper trading: simulação de posições abertas
 ├── alerts/            Formatação + envio de alertas (Telegram)
+├── ai_agents/         AI Trade Council: camada qualitativa pós-SIGNAL (advisory, nunca veta)
 └── ...                
 ```
 
@@ -20,7 +21,7 @@ Veja `doc/ARCHITECTURE.md` para mapa completo.
 
 ## Pipeline do ciclo
 
-A cada ciclo, para cada ativo, o bot executa nesta ordem (`project.md` §5):
+A cada ciclo, para cada ativo, o bot executa nesta ordem:
 
 ```
 Filtro de mercado (BTC, 1× por ciclo)
@@ -30,9 +31,20 @@ Filtro de mercado (BTC, 1× por ciclo)
   → Stop (fundo do pullback − ATR×K) → Resistência → Take Profit
   → Validações (retorno mínimo, R/R ≥ 2.0, exposição)
   → Paper trading (simulação) → Alerta no Telegram
+  → [opcional] AI Trade Council (background, não bloqueia o alerta)
 ```
 
 Se qualquer etapa obrigatória falhar: **NO TRADE** (sem alerta).
+
+## AI Trade Council (opcional, `ai.enabled: false` por padrão)
+
+Camada qualitativa que enriquece o alerta **depois** que o motor valida o setup. Não toma decisão financeira nem recalcula stop/alvo: cruza o setup com notícias recentes e o estado da carteira via LLMs e manda um follow-up "🧠 Contexto IA" no Telegram. Se o LLM falhar, nada se perde — o alerta original já saiu.
+
+- **Agentes** (`src/ai_agents/`): analista de notícias (RAG) + comentarista de risco (só comenta fatos calculados em código) rodam em paralelo → conselheiro-chefe sintetiza o briefing. Saída validada por schemas Pydantic; texto do LLM nunca contém números (preços/percentuais vêm do código).
+- **RAG** (`src/ai_agents/rag/`): daemon ingere RSS em `news_articles` (pgvector, `gemini-embedding-2`, 768 dims) e o retrieval ranqueia por similaridade com fallback SQL. Ver `src/ai_agents/README.md` e `src/ai_agents/rag/README.md`.
+- **Comandos**: `/dossier MOEDA [dias]` (panorama de notícias, até 30d) e `/analyze MOEDA` (por que o motor observa — ou não — o ativo). Ambos com cooldown e teto diário de chamadas.
+- **Custo/auditoria**: cada chamada vai para `ai_calls`; cada briefing para `council_reports`.
+- **Infra**: o banco usa imagem própria (`Dockerfile.db`: postgres:16-alpine + pgvector compilado, mesmo volume `pgdata`). Requer `ANTHROPIC_API_KEY` (Haiku via LiteLLM) e `GEMINI_API_KEY` no `.env`.
 
 ## Status do ciclo (o que aparece no `RESULTS` e nos logs)
 
@@ -60,7 +72,7 @@ RESULTS: {'BTC': 'WATCHING', 'ETH': 'WATCHING', 'XRP': 'WATCHING',
 
 ## Estados persistidos (máquina de estados)
 
-Além do status pontual do ciclo, cada ativo tem um **estado persistente** em Postgres que sobrevive a reinicializações (`project.md` §§25–27). Fluxo normal:
+Além do status pontual do ciclo, cada ativo tem um **estado persistente** em Postgres que sobrevive a reinicializações. Fluxo normal:
 
 ```
 NO_SETUP → WATCHING → ALERT_SENT → (cooldown de 12h) → NO_SETUP
@@ -75,13 +87,14 @@ Estados possíveis na tabela `asset_state`:
 | `WATCHING` | Pullback detectado; contando candles 15m até confirmar ou expirar. Guarda `ema`, `pullback_low` e `candles_15m_waited`. |
 | `ALERT_SENT` | Sinal gerado; guarda `entry`, `stop`, `tp`, `rr`, `last_alert_ts` e `cooldown_until_ts`. |
 | `INVALIDATED` | Vigilância abortada por quebra estrutural. Volta a operar normalmente no próximo ciclo. |
-| `TOUCHED_EMA` / `CONFIRMED` / `COOLDOWN` | Previstos no `project.md`, mas **não gravados pelo motor da V1**: `TOUCHED_EMA`/`CONFIRMED` são etapas intermediárias tratadas dentro do próprio ciclo, e o cooldown é derivado do campo `cooldown_until_ts` (verificado a cada ciclo) em vez de um estado próprio. |
+| `TOUCHED_EMA` / `CONFIRMED` / `COOLDOWN` | Previstos mas **não gravados pelo motor**: `TOUCHED_EMA`/`CONFIRMED` são etapas intermediárias tratadas dentro do próprio ciclo, e o cooldown é derivado do campo `cooldown_until_ts` (verificado a cada ciclo) em vez de um estado próprio. |
 
 ## Setup
 
 ```bash
 poetry install
 cp .env.example .env   # preencher TELEGRAM_BOT_TOKEN e TELEGRAM_CHAT_ID
+# Opcional (só p/ AI Trade Council): ANTHROPIC_API_KEY + GEMINI_API_KEY, e ai.enabled: true
 ```
 
 ## Rodar
@@ -94,30 +107,35 @@ Por padrão o bot roda em **dry-run** (`dry_run: true` em `config/config.yaml`):
 
 ## Configuração
 
-Toda a estratégia vive em `config/config.yaml` (espelha a seção 33 do `project.md`): ativos, EMAs, ATR, filtros macro/mercado, limiar de toque, invalidação, stop, alvo (mínimo absoluto 3%, faixa preferencial 5–10%), R/R mínimo 2.0, risco simulado (saldo $1000, 1% por trade), exposição e cooldown. Nenhum parâmetro está hardcoded no código.
+Toda a estratégia vive em `config/config.yaml`: ativos, EMAs, ATR, filtros macro/mercado, limiar de toque, invalidação, stop, alvo (mínimo absoluto 3%, faixa preferencial 5–10%), R/R mínimo 2.0, risco simulado (saldo $1000, 1% por trade), exposição e cooldown. Nenhum parâmetro está hardcoded no código.
 
-Três simplificações assumidas na V1 (detalhes no `project.md` eram abertos):
+Três simplificações assumidas:
 
 1. **Correlação**: todos os ativos exceto BTC formam um único grupo correlacionado (`max_correlated_exposure: 2`).
 2. **Confirmação 15m**: 1 critério (engolfo de alta ou fechamento acima da máxima anterior); interface pronta para plugar outros.
 3. **Resistência**: máxima dos últimos 50 candles 4H.
 
-## Verificação manual (sem testes automatizados na V1)
+## Verificação manual (sem testes automatizados)
 
 ```bash
-# 1. Sanity numérico (reproduz os exemplos das seções 20 e 22 do project.md)
+# 1. Sanity numérico (valida os cálculos de stop/TP/R:R com exemplos de referência)
 poetry run python scripts/sanity_check.py
 # 2. Dry-run de 1 ciclo contra a Binance (somente leitura, não envia nada)
 poetry run python scripts/dry_run_once.py
+# 3. IA (sem custo): council com LLM stubado + probe do retrieval
+poetry run python scripts/council_once.py --asset SOL --fake
+poetry run python scripts/rag_probe.py SOL
+# 4. IA (com custo, requer as chaves no .env): smoke Haiku + embeddings
+poetry run python scripts/smoke_ai.py
 ```
 
 ## Estado e logs
 
-- Postgres via `DATABASE_URL` (único banco; sem `DATABASE_URL` a app recusa subir), tabela `asset_state`:
+- Postgres via `DATABASE_URL` (único banco; sem `DATABASE_URL` a app recusa subir). Tabelas: `asset_state`, `paper_positions`, `portfolio_*`, e (com IA ligada) `news_articles`, `council_reports`, `ai_calls`:
   ```bash
   psql "$DATABASE_URL" -c "SELECT asset, state, ema, entry, stop, tp, rr FROM asset_state ORDER BY asset;"
   ```
-- Logs seguem o formato da seção 37 do `project.md`:
+- Logs seguem o formato `[INFO] ...`:
   ```
   [INFO] Market Filter - BTC: PASS
   [INFO] BTC - Macro filter: PASS (ok)
@@ -145,6 +163,9 @@ Registre suas compras/vendas reais pelo Telegram e receba alertas de +5%/+10%:
 /edit 3,hora,14:30       → altera o horário do registro #3 (recalcula o preço)
 /edit 3,hora,30-12-2025-14:54 → idem com data completa (para registros antigos)
 /delete 3                → apaga o registro #3
+/suportes BTC            → suportes (MM30/pivot/Fib)
+/dossier SOL 7            → panorama de notícias dos últimos 7d (requer IA ligada)
+/analyze SOL             → por que o motor observa (ou não) o ativo (requer IA ligada)
 /help                    → lista todos os comandos com exemplos
 ```
 

@@ -7,6 +7,8 @@ from zoneinfo import ZoneInfo
 
 from src.alerts.telegram import (
     format_delete_confirmation,
+    format_diagnosis,
+    format_dossier,
     format_edit_confirmation,
     format_extrato,
     format_help,
@@ -21,8 +23,10 @@ from src.alerts.telegram import (
 )
 from src.exchange.client import fetch_warmup, make_exchange, symbol_for
 from src.portfolio.parser import (
+    parse_analyze,
     parse_command,
     parse_delete,
+    parse_dossier,
     parse_edit,
     parse_full_dt,
     parse_old_command,
@@ -125,6 +129,41 @@ def handle_text(text: str, message_id: int, conn, exchange, cfg) -> str:
         need = max(int(sup.get("sma_long", 200)), int(sup.get("discovery_lookback", 90))) + 10
         df = fetch_warmup(exchange, symbol_for(asset, quote), timeframe="1d", total=need)
         return format_suportes(asset, compute_supports(df, cfg))
+
+    if cmd.lower().startswith("/dossier"):
+        from src.ai_agents.context import command_allowed
+        from src.ai_agents.llm import enabled as ai_enabled
+        from src.ai_agents.rag.retrieve import retrieve
+        asset, days = parse_dossier(cmd)
+        validate_asset(asset, cfg)
+        if not ai_enabled(cfg):
+            raise ValueError("Módulo IA desabilitado (ai.enabled=false).")
+        ok, why = command_allowed(conn, cfg, str(cfg["telegram"]["chat_id"]), "dossier")
+        if not ok:
+            raise ValueError(why)
+        snippets, mode = retrieve(conn, cfg, asset,
+                                  max_age_hours=days * 24,
+                                  top_k=int(cfg.get("ai", {}).get("rag", {}).get("max_headlines", 12)))
+        return format_dossier(asset, snippets, mode, days)
+
+    if cmd.lower().startswith("/analyze"):
+        from src.ai_agents.agents import run_diagnostician
+        from src.ai_agents.context import command_allowed
+        from src.ai_agents.diagnose import diagnose_text
+        from src.ai_agents.llm import enabled as ai_enabled
+        asset = parse_analyze(cmd)
+        validate_asset(asset, cfg)
+        if not ai_enabled(cfg):
+            raise ValueError("Módulo IA desabilitado (ai.enabled=false).")
+        ok, why = command_allowed(conn, cfg, str(cfg["telegram"]["chat_id"]), "analyze")
+        if not ok:
+            raise ValueError(why)
+        facts = diagnose_text(conn, exchange, cfg, asset)
+        try:
+            narrative = run_diagnostician(conn, cfg, facts)
+        except Exception:
+            narrative = None
+        return format_diagnosis(asset, facts, narrative)
 
     if cmd.lower().startswith("/extrato"):
         parts = cmd.split()

@@ -1,4 +1,4 @@
-"""Logging setup matching project.md section 37 format."""
+"""Logging setup for the "[INFO] ..." format."""
 
 import logging
 

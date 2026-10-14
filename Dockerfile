@@ -10,12 +10,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml poetry.lock* README.md ./
+
+RUN pip install --no-cache-dir poetry \
+    && poetry install --only main --no-interaction --no-ansi
+
 COPY src/ src/
 COPY config/ config/
 COPY main.py ./
 COPY scripts/ scripts/
-
-RUN pip install --no-cache-dir poetry \
-    && poetry install --only main --no-interaction --no-ansi
 
 CMD ["python", "main.py"]

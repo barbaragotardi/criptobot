@@ -1,6 +1,6 @@
-"""Exposure manager (section 23). V4: caps count OPEN paper positions.
+"""Exposure manager: caps count OPEN paper positions.
 
-V1: all non-BTC assets share one correlated group."""
+All non-BTC assets share one correlated group."""
 
 import time
 

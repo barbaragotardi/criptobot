@@ -1,4 +1,4 @@
-"""V4 exit monitor: checks OPEN paper positions against the latest closed 15m candle.
+"""Exit monitor: checks OPEN paper positions against the latest closed 15m candle.
 
 Same-candle stop+TP counts as STOP (conservative). Incremental: one closed
 candle per cycle instead of a full history walk.
