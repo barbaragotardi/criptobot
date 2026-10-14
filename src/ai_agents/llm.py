@@ -125,8 +125,11 @@ def has_number(text: str) -> bool:
     import re
     if re.search(r"[$%]", text):
         return True
+    # Technical tokens are not prices: EMA20/EMA200, 1D/4H/15m timeframes.
+    scrubbed = re.sub(r"EMA\d+", " ", text)
+    scrubbed = re.sub(r"\d+[DHdhm]\b", " ", scrubbed)
     # numbers with 3+ digits or decimals look like prices/percents
-    return bool(re.search(r"\d{3,}|\d+\.\d+", text))
+    return bool(re.search(r"\d{3,}|\d+\.\d+", scrubbed))
 
 
 def strip_numbered(items: list[str]) -> list[str]:

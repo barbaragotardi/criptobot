@@ -52,11 +52,12 @@ def portfolio_facts(conn, asset: str, cfg: dict) -> dict:
 
 
 def facts_text(setup: dict, pf: dict) -> str:
+    has_manual = "sim" if (pf.get("portfolio_qty") or 0) > 0 else "nao"
     return (
         f"Ativo {setup.get('asset')} estado {setup.get('state')}."
         f" Posicoes paper abertas: {pf['open_positions']} (correlacionadas {pf['correlated_open']})."
         f" Este ativo com paper aberto: {pf['asset_has_paper_open']}."
-        f" Carteira manual: qtd {pf['portfolio_qty']:.6f} media {pf['portfolio_avg']:.2f}."
+        f" Carteira manual no ativo: {has_manual}."
         " Comente apenas estes fatos, sem inventar numeros."
     )
 

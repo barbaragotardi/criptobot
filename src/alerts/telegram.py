@@ -395,6 +395,42 @@ def format_suportes(asset: str, s: dict) -> str:
     return "\n".join(lines)
 
 
+TOPIC_LABELS = {
+    "regulation": "regulação", "etf_flows": "fluxos de ETF",
+    "hack_exploit": "hack/exploit", "macro_rates": "macro/juros",
+    "exchange_listing": "listagem em exchange", "partnership": "parceria",
+    "protocol_upgrade": "upgrade de protocolo", "liquidations": "liquidações",
+    "adoption": "adoção", "legal": "jurídico", "whale_activity": "baleias",
+    "other": "outros",
+}
+
+RISK_FLAG_LABELS = {
+    "many_open_positions": "muitas posições abertas",
+    "high_correlation": "alta correlação",
+    "already_holding_paper": "já com posição paper no ativo",
+    "already_holding_manual": "já em carteira manual",
+    "near_exposure_cap": "próximo do teto de exposição",
+}
+
+BLOCKER_LABELS = {
+    "market_bearish": "mercado em viés de baixa",
+    "macro_fail": "macro reprovado",
+    "no_pullback": "sem pullback válido",
+    "cooldown_active": "em cooldown",
+    "awaiting_confirmation": "aguardando confirmação",
+    "exposure_blocked": "bloqueado por exposição",
+    "rr_below_min": "retorno/risco abaixo do mínimo",
+    "tp_below_min": "alvo abaixo do mínimo",
+}
+
+WATCHER_LABELS = {
+    "near_ema20": "próximo da EMA20",
+    "near_ema50": "próximo da EMA50",
+    "awaiting_confirmation": "aguardando confirmação",
+    "near_support": "próximo de suporte",
+}
+
+
 def format_council(res: dict) -> str:
     """Follow-up briefing. Numbers come from code facts only, never from the LLM."""
     b = (res.get("briefing") or {})
@@ -410,12 +446,19 @@ def format_council(res: dict) -> str:
         lines.append(f"• {_esc(str(x))}")
     if n.get("sentiment") and n.get("sentiment") != "neutral":
         lines.append(f"Notícias: {_esc(str(n['sentiment']))} (confiança {_esc(str(n.get('confidence', 'low')))})")
-    for x in (n.get("risks") or [])[:3]:
-        lines.append(f"⚠️ {_esc(str(x))}")
+    for x in (n.get("catalysts") or [])[:5]:
+        if x in TOPIC_LABELS:
+            lines.append(f"• {_esc(TOPIC_LABELS[x])}")
+    for x in (n.get("risks") or [])[:5]:
+        if x in TOPIC_LABELS:
+            lines.append(f"⚠️ {_esc(TOPIC_LABELS[x])}")
+    if n.get("rationale"):
+        lines.append(f"• {_esc(str(n['rationale']))}")
     if (r.get("concentration")) in ("high", "medium"):
         lines.append(f"Concentração: {_esc(str(r['concentration']))}")
-    for x in (r.get("notes") or [])[:3]:
-        lines.append(f"• {_esc(str(x))}")
+    for x in (r.get("flags") or [])[:5]:
+        if x in RISK_FLAG_LABELS:
+            lines.append(f"• {_esc(RISK_FLAG_LABELS[x])}")
     if setup.get("news_mode") == "sql":
         lines.append("(busca vetorial indisponível; fallback por palavra-chave)")
     lines.append("\n⚠️ Contexto gerado por IA, pode errar. Decisão é sua.")
@@ -435,11 +478,16 @@ def format_dossier(asset: str, snippets: list[dict], mode: str, days: int) -> st
 def format_diagnosis(asset: str, facts: str, narrative) -> str:
     lines = [f"🔍 ANÁLISE {_esc(asset)}", "", f"Técnico: {_esc(facts)}"]
     if narrative is not None:
-        lines.append(f"Resumo: {_esc(narrative.state_summary)}")
-        for x in (narrative.blockers or [])[:5]:
-            lines.append(f"⛔ {_esc(str(x))}")
-        for x in (narrative.watchers or [])[:5]:
-            lines.append(f"👀 {_esc(str(x))}")
+        blockers = getattr(narrative, "blockers", None)
+        if blockers is None and isinstance(narrative, dict):
+            blockers = narrative.get("blockers")
+        for x in (blockers or [])[:5]:
+            lines.append(f"⛔ {_esc(BLOCKER_LABELS.get(str(x), str(x)))}")
+        watchers = getattr(narrative, "watchers", None)
+        if watchers is None and isinstance(narrative, dict):
+            watchers = narrative.get("watchers")
+        for x in (watchers or [])[:5]:
+            lines.append(f"👀 {_esc(WATCHER_LABELS.get(str(x), str(x)))}")
     lines.append("\n⚠️ Leitura técnica + IA, não recomendação.")
     return "\n".join(lines)
 

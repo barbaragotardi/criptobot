@@ -18,8 +18,7 @@ def main() -> None:
         import src.ai_agents.agents as ag
         from src.ai_agents.schemas import Briefing, NewsView, RiskView
         ag.run_news = lambda conn, cfg, sn: NewsView(sentiment="neutral")
-        ag.run_risk = lambda conn, cfg, f: RiskView(concentration="low",
-                                                    notes=["stub: sem concentração"])
+        ag.run_risk = lambda conn, cfg, f: RiskView(concentration="low", flags=[])
         ag.run_chief = lambda conn, cfg, n, r, a, s: Briefing(
             tone="neutral", bullets=["stub: briefing fake"])
     from src.strategy.state import connect_cfg

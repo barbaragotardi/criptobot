@@ -47,10 +47,14 @@ src/ai_agents/council.py          run_council (síncrono, nunca levanta) + submi
                                   conexão própria, pool de 2 threads). Só roda após SIGNAL.
 src/ai_agents/agents.py           run_news/run_risk (paralelo) → run_chief (join) + run_diagnostician.
                                   Prompts pt-BR; saída sempre via schemas.py.
-src/ai_agents/schemas.py          NewsView, RiskView, Briefing, AssetDiagnosis (SCHEMA_VERSION=1).
+src/ai_agents/schemas.py          NewsView (sentiment/confidence + NewsTopic catalysts/risks + rationale),
+                                   RiskView (concentration + RiskFlag flags), Briefing (tone + bullets curtos),
+                                   AssetDiagnosis (Blocker/Watcher). Enums impostos pelo schema (SCHEMA_VERSION=1).
 src/ai_agents/llm.py              complete_structured via LiteLLM (Haiku, sem fallback) + log_call.
-                                  1 tentativa + 1 repair retry; depois disso, fail-open.
+                                   1 tentativa + 1 repair retry; depois disso, fail-open.
+                                   has_number ignora tokens técnicos (EMA\d+, 1D/4H/15m) antes de filtrar $/%/dígitos.
 src/ai_agents/context.py          setup_facts/portfolio_facts/command_allowed (determinístico, sem LLM).
+                                   facts_text não envia qtd/média da carteira (só sim/não), p/ não induzir números.
 src/ai_agents/diagnose.py         diagnose_text p/ /analyze (só leitura: filtros + pullback + suportes).
 src/ai_agents/rag/store.py        ingest_once: RSS → parse → classify → persiste → embeda NULLs em
                                   lotes de 50 → prune por retenção. Nunca levanta.
@@ -134,8 +138,11 @@ INVALIDATED | TIMEOUT | COOLDOWN | SEND_FAILED | ERROR` (detalhes no README).
    (`FAIXA PREFERENCIAL` / `ACIMA DA FAIXA PREFERENCIAL`); teto real é `max_tp_percent: 50`.
 5. **Janela de confirmação (16) = 1 candle 4H**; o toque 4H só muda a cada 4h, então cada
     episódio tem ~1 janela efetiva. `pullback_low` é fixado na entrada em WATCHING (janela de 6×4H).
-6. **LLM nunca emite números** — `$`, `%` e dígitos longos em texto do modelo disparam repair
-    e depois descarte (`llm.py:strip_numbered`); números no Telegram vêm só dos facts do código.
+6. **LLM só escolhe categorias** — catalysts/risks (`NewsTopic`), risk flags (`RiskFlag`),
+    blockers/watchers e tone/sentiment/confidence são enums impostos pelo schema
+    (única restrição que a API Anthropic impõe de fato; `maxLength`/`maxItems` viram só dica).
+    Texto livre existe só em `rationale` e `bullets` (curtos, filtrados por `llm.py:strip_numbered`);
+    números no Telegram vêm só dos facts do código (`telegram.py` renderiza enums por mapa fixo).
 7. **Vetores não são comparáveis entre modelos** — cada linha guarda `embedding_model`/`embedding_dim`;
     trocar de modelo exige re-embed deliberado. Coluna `vector(768)` + HNSW só existem com
     `ai.enabled: true`; sem a extensão pgvector, tudo degrada p/ SQL silenciosamente.
