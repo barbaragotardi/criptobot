@@ -16,6 +16,7 @@ python-dotenv = "^1.2.3"
 numpy = "^2.5.3"
 psycopg = {extras = ["binary"], version = "^3.2"}
 litellm = "^1.65.0"
+langfuse = ">=4.7,<5"
 pydantic = "^2.10.0"
 google-genai = "^1.0.0"
 

@@ -115,7 +115,8 @@ CREATE TABLE IF NOT EXISTS council_reports (
   briefing_json TEXT NOT NULL DEFAULT '{}',
   model TEXT NOT NULL DEFAULT '',
   ok BIGINT NOT NULL DEFAULT 0,
-  error TEXT NOT NULL DEFAULT ''
+  error TEXT NOT NULL DEFAULT '',
+  trace_id TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_council_asset ON council_reports(asset);
 CREATE TABLE IF NOT EXISTS ai_calls (
@@ -150,6 +151,7 @@ def ensure_schema(conn, ai_enabled: bool = False, embedding_dim: int = 768) -> N
             conn.execute(stmt)
     conn.commit()
     _migrate_portfolio_remaining_qty(conn)
+    _migrate_council_trace_id(conn)
     if ai_enabled:
         _migrate_ai_vector(conn, embedding_dim)
 
@@ -187,6 +189,17 @@ def _migrate_ai_vector(conn, embedding_dim: int) -> None:
     except Exception as e:
         conn.rollback()
         log.warning("hnsw index skipped: %s", e)
+
+
+def _migrate_council_trace_id(conn) -> None:
+    """trace_id links a briefing row to its Langfuse trace (LLMOps audit)."""
+    row = conn.execute(
+        "SELECT 1 FROM information_schema.columns "
+        "WHERE table_name='council_reports' AND column_name='trace_id'"
+    ).fetchone()
+    if not row:
+        conn.execute("ALTER TABLE council_reports ADD COLUMN trace_id TEXT NOT NULL DEFAULT ''")
+    conn.commit()
 
 
 def _migrate_portfolio_remaining_qty(conn) -> None:

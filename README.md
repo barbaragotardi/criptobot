@@ -44,6 +44,10 @@ Camada qualitativa que enriquece o alerta **depois** que o motor valida o setup.
 - **RAG** (`src/ai_agents/rag/`): daemon ingere RSS em `news_articles` (pgvector, `gemini-embedding-2`, 768 dims) e o retrieval ranqueia por similaridade com fallback SQL. Ver `src/ai_agents/README.md` e `src/ai_agents/rag/README.md`.
 - **Comandos**: `/dossier MOEDA [dias]` (panorama de notícias, até 30d) e `/analyze MOEDA` (por que o motor observa — ou não — o ativo). Ambos com cooldown e teto diário de chamadas.
 - **Custo/auditoria**: cada chamada vai para `ai_calls`; cada briefing para `council_reports`.
+- **LLMOps / Observabilidade** (opcional, Langfuse Cloud): com `ai.observability.langfuse.enabled: true` + `LANGFUSE_PUBLIC_KEY`/`LANGFUSE_SECRET_KEY` no `.env`, cada council gera um trace único (`run_council` → `rag_retrieve` + `run_news` ∥ `run_risk` → `run_chief`), e cada `/analyze` gera um trace próprio.
+  - **Rastreabilidade (Tracing)**: o `trace_id` é gravado em `council_reports.trace_id`; o span `rag_retrieve` lista as manchetes lidas, permitindo auditar qual notícia baseou cada avaliação.
+  - **Controle de custos**: tokens de entrada (contexto do pgvector) vs saída por agente/trace, com custo em USD calculado pelo LiteLLM — complementa `ai_calls`. O `/dossier` não chama LLM (só retrieval), por isso fica fora dos traces.
+  - **Fail-safes**: tracing é fail-open (sem chaves ou com o Langfuse fora do ar, o bot segue normal); falhas do LLM aparecem como ERROR no Langfuse e como `ok=0` em `ai_calls`/`council_reports`, sem derrubar o bot.
 - **Infra**: o banco usa imagem própria (`Dockerfile.db`: postgres:16-alpine + pgvector compilado, mesmo volume `pgdata`). Requer `ANTHROPIC_API_KEY` (Haiku via LiteLLM) e `GEMINI_API_KEY` no `.env`.
 
 ## Status do ciclo (o que aparece no `RESULTS` e nos logs)

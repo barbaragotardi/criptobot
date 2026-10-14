@@ -151,6 +151,9 @@ def handle_text(text: str, message_id: int, conn, exchange, cfg) -> str:
         from src.ai_agents.context import command_allowed
         from src.ai_agents.diagnose import diagnose_text
         from src.ai_agents.llm import enabled as ai_enabled
+        from src.ai_agents.tracing import flush as tracing_flush
+        from src.ai_agents.tracing import init as tracing_init
+        from src.ai_agents.tracing import span as trace_span
         asset = parse_analyze(cmd)
         validate_asset(asset, cfg)
         if not ai_enabled(cfg):
@@ -159,10 +162,15 @@ def handle_text(text: str, message_id: int, conn, exchange, cfg) -> str:
         if not ok:
             raise ValueError(why)
         facts = diagnose_text(conn, exchange, cfg, asset)
+        tracing_init(cfg)
         try:
-            narrative = run_diagnostician(conn, cfg, facts)
+            with trace_span("analyze", tags=["analyze", asset],
+                            metadata={"asset": asset}) as actx:
+                narrative = run_diagnostician(conn, cfg, facts, _trace=actx)
         except Exception:
             narrative = None
+        finally:
+            tracing_flush()
         return format_diagnosis(asset, facts, narrative)
 
     if cmd.lower().startswith("/extrato"):

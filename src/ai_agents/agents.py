@@ -42,13 +42,14 @@ def _dedup(items: list[str], limit: int) -> list[str]:
     return seen
 
 
-def run_news(conn, cfg, snippets: list[dict]) -> NewsView:
+def run_news(conn, cfg, snippets: list[dict], _trace: dict | None = None) -> NewsView:
     from src.ai_agents.llm import complete_structured
     if not snippets:
         return NewsView()
     lines = [f"[{s['id']}] {s['source']}: {s['title']} — {s['summary']}" for s in snippets]
     user = "Notícias:\n" + "\n".join(lines[:12])
-    parsed, _ = complete_structured(conn, cfg, "news_analyst", NewsView, NEWS_SYS, user)
+    parsed, _ = complete_structured(conn, cfg, "news_analyst", NewsView, NEWS_SYS, user,
+                                    _trace=_trace)
     known = {s["id"] for s in snippets} | {s["id"][:8] for s in snippets}
     v = parsed.validated({s["id"] for s in snippets} | known)
     rationale = (v.rationale or "")[:140]
@@ -59,26 +60,28 @@ def run_news(conn, cfg, snippets: list[dict]) -> NewsView:
                     rationale=rationale)
 
 
-def run_risk(conn, cfg, facts: str) -> RiskView:
+def run_risk(conn, cfg, facts: str, _trace: dict | None = None) -> RiskView:
     from src.ai_agents.llm import complete_structured
     parsed, _ = complete_structured(conn, cfg, "risk_commentator", RiskView,
-                                    RISK_SYS, f"FATOS:\n{facts}")
+                                    RISK_SYS, f"FATOS:\n{facts}", _trace=_trace)
     return RiskView(concentration=parsed.concentration,
                     flags=_dedup(parsed.flags, 5))
 
 
-def run_chief(conn, cfg, news: NewsView, risk: RiskView, asset: str, state: str) -> Briefing:
+def run_chief(conn, cfg, news: NewsView, risk: RiskView, asset: str, state: str,
+              _trace: dict | None = None) -> Briefing:
     from src.ai_agents.llm import complete_structured
     user = (f"Ativo {asset} estado {state}. News: {news.model_dump_json()}."
             f" Risk: {risk.model_dump_json()}. Gere o briefing.")
-    parsed, _ = complete_structured(conn, cfg, "chief_advisor", Briefing, CHIEF_SYS, user)
+    parsed, _ = complete_structured(conn, cfg, "chief_advisor", Briefing, CHIEF_SYS, user,
+                                    _trace=_trace)
     bullets = [b[:140] for b in (parsed.bullets or []) if b][:6]
     return Briefing(tone=parsed.tone, bullets=bullets)
 
 
-def run_diagnostician(conn, cfg, facts: str) -> AssetDiagnosis:
+def run_diagnostician(conn, cfg, facts: str, _trace: dict | None = None) -> AssetDiagnosis:
     from src.ai_agents.llm import complete_structured
     parsed, _ = complete_structured(conn, cfg, "diagnostician", AssetDiagnosis,
-                                    DIAG_SYS, f"FATOS:\n{facts}")
+                                    DIAG_SYS, f"FATOS:\n{facts}", _trace=_trace)
     return AssetDiagnosis(blockers=_dedup(parsed.blockers, 5),
                           watchers=_dedup(parsed.watchers, 5))

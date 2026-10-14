@@ -7,7 +7,7 @@
 - If any mandatory step fails: return NO_TRADE / NO_SETUP / REJECTED, send no alert.
 - Include paper trading (virtual ledger, auto-open on SIGNAL, monitor TP/STOP on 15m closed candles) and manual portfolio via Telegram (/compra /venda /troca /old_* /extrato /historico /edit /delete /help).
 - Include support levels calculator (`src/supports/calc.py`: MA30/EMA30, daily pivot S1/S2, Fibonacci with fractal swing anchors; Telegram `/suportes` command).
-- Include AI Trade Council (qualitative layer only): after `SIGNAL` (alert + `ALERT_SENT` unchanged), background thread runs news + risk agents in parallel -> chief briefing -> follow-up "🧠 Contexto IA" via Telegram; persists to `council_reports` + `ai_calls`. Never vetoes signal, never recalculates numbers. Commands `/dossier` (news) and `/analyze` (diagnostic).
+- Include AI Trade Council (qualitative layer only): after `SIGNAL` (alert + `ALERT_SENT` unchanged), background thread runs news + risk agents in parallel -> chief briefing -> follow-up "🧠 Contexto IA" via Telegram; persists to `council_reports` (incl. `trace_id` do Langfuse) + `ai_calls`. Never vetoes signal, never recalculates numbers. Commands `/dossier` (news) and `/analyze` (diagnostic).
 - Strategy reference: `README.md` (pipeline, status table). Architecture map: `doc/ARCHITECTURE.md`. AI layer details: `src/ai_agents/README.md`, `src/ai_agents/rag/README.md`.
 
 ## Tech Stack

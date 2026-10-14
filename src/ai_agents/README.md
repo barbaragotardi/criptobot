@@ -8,6 +8,7 @@ Camada qualitativa sobre o motor quantitativo: só roda após `SIGNAL`, nunca ve
 - `agents.py` — `run_news()`, `run_risk()`, `run_chief()`, `run_diagnostician()` (prompts pt-BR, saída via schemas)
 - `schemas.py` — `NewsView` (sentiment/confidence + `NewsTopic` catalysts/risks + `rationale` curta), `RiskView` (`RiskFlag` flags), `Briefing` (tone + bullets curtos), `AssetDiagnosis` (`Blocker`/`Watcher`); `SCHEMA_VERSION = 1`
 - `llm.py` — `complete_structured()` via LiteLLM (Haiku, sem fallback), `log_call()`, guard de números
+- `tracing.py` — Langfuse opt-in (`ai.observability.langfuse.enabled` + chaves no `.env`): callbacks do LiteLLM (custo/tokens) + spans explícitos; fail-open, nunca veta nem atrasa o alerta
 - `context.py` — `setup_facts()`, `portfolio_facts()`, `command_allowed()` (fatos determinísticos, sem LLM)
 - `diagnose.py` — `diagnose_text()` p/ `/analyze` (só leitura, sem writes)
 - `rag/` — ingestão + retrieval de notícias (ver `rag/README.md`)

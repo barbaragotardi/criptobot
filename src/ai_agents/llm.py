@@ -54,12 +54,17 @@ def log_call(conn, agent: str, model: str, latency_ms: int, pt: int = 0,
 
 
 def complete_structured(conn, cfg: dict, agent: str, model_cls, system: str,
-                        user: str) -> tuple:
+                        user: str, _trace: dict | None = None) -> tuple:
     """One attempt + one repair retry. Returns (parsed_model, usage_dict).
 
     Raises RuntimeError on failure (caller must fail open: log + no follow-up).
     """
     import litellm
+    from src.ai_agents.tracing import init as tracing_init
+    from src.ai_agents.tracing import llm_metadata
+
+    tracing_init(cfg)
+    md = llm_metadata(agent, trace=_trace)
 
     a = ai_cfg(cfg)
     model = a.get("model", "")
@@ -84,6 +89,7 @@ def complete_structured(conn, cfg: dict, agent: str, model_cls, system: str,
             response_format={"type": "json_object", "response_schema": schema},
             temperature=float(a.get("temperature", 0.0)),
             max_tokens=max_tokens, timeout=timeout, num_retries=2,
+            metadata=md or None,
         )
         txt = resp.choices[0].message.content or "{}"
         usage = getattr(resp, "usage", None)
@@ -101,6 +107,7 @@ def complete_structured(conn, cfg: dict, agent: str, model_cls, system: str,
                           {"role": "user", "content": f"Fix JSON to match schema. Errors: {ve}. Return valid JSON only."}],
                 response_format={"type": "json_object", "response_schema": schema},
                 temperature=0.0, max_tokens=max_tokens, timeout=timeout,
+                metadata=md or None,
             )
             txt2 = fix.choices[0].message.content or "{}"
             parsed = model_cls.model_validate_json(txt2)  # raises if still bad

@@ -155,6 +155,9 @@ ai:
     DOT: ["Polkadot", "DOT"]
     BNB: ["Binance", "BNB"]
     DOGE: ["Dogecoin", "DOGE"]
+  observability:
+    langfuse:
+      enabled: false
 
 system:
   candle_closed_only: true

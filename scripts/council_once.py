@@ -17,9 +17,9 @@ def main() -> None:
     if args.fake:
         import src.ai_agents.agents as ag
         from src.ai_agents.schemas import Briefing, NewsView, RiskView
-        ag.run_news = lambda conn, cfg, sn: NewsView(sentiment="neutral")
-        ag.run_risk = lambda conn, cfg, f: RiskView(concentration="low", flags=[])
-        ag.run_chief = lambda conn, cfg, n, r, a, s: Briefing(
+        ag.run_news = lambda conn, cfg, sn, _trace=None: NewsView(sentiment="neutral")
+        ag.run_risk = lambda conn, cfg, f, _trace=None: RiskView(concentration="low", flags=[])
+        ag.run_chief = lambda conn, cfg, n, r, a, s, _trace=None: Briefing(
             tone="neutral", bullets=["stub: briefing fake"])
     from src.strategy.state import connect_cfg
     conn = connect_cfg(cfg)
