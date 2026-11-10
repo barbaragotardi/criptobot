@@ -77,13 +77,17 @@ def format_paper_close(asset: str, reason: str, exit_price: float,
 
 def get_updates(bot_token: str, offset: int = 0, timeout: int = 30) -> list[dict]:
     """Long-poll Telegram getUpdates. Returns list of update dicts (may be empty)."""
-    r = requests.get(
-        f"https://api.telegram.org/bot{bot_token}/getUpdates",
-        params={"offset": offset, "timeout": timeout},
-        timeout=timeout + 10,
-    )
+    try:
+        r = requests.get(
+            f"https://api.telegram.org/bot{bot_token}/getUpdates",
+            params={"offset": offset, "timeout": timeout},
+            timeout=timeout + 10,
+        )
+    except requests.RequestException as e:
+        log.error("Telegram getUpdates request failed (%s)", type(e).__name__)
+        return []
     if r.status_code != 200:
-        log.error("Telegram getUpdates failed: %s %s", r.status_code, r.text[:200])
+        log.error("Telegram getUpdates failed: HTTP %s", r.status_code)
         return []
     return r.json().get("result", [])
 
@@ -500,22 +504,30 @@ def send_telegram(bot_token: str, chat_id: str, text: str, dry_run: bool = True)
         log.error("Telegram credentials missing; alert NOT sent")
         return False
     payload: dict = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
-    r = requests.post(
-        f"https://api.telegram.org/bot{bot_token}/sendMessage",
-        json=payload,
-        timeout=15,
-    )
-    if r.status_code == 400 and "can't parse" in r.text:
-        # HTML malformado (ex: texto com < > vindo de input do usuário):
-        # reenvia como texto puro em vez de perder a mensagem.
-        log.warning("Telegram HTML parse failed, retrying as plain text")
-        payload.pop("parse_mode")
+    try:
         r = requests.post(
             f"https://api.telegram.org/bot{bot_token}/sendMessage",
             json=payload,
             timeout=15,
         )
+    except requests.RequestException as e:
+        log.error("Telegram send request failed (%s)", type(e).__name__)
+        return False
+    if r.status_code == 400 and "can't parse" in r.text:
+        # HTML malformado (ex: texto com < > vindo de input do usuário):
+        # reenvia como texto puro em vez de perder a mensagem.
+        log.warning("Telegram HTML parse failed, retrying as plain text")
+        payload.pop("parse_mode")
+        try:
+            r = requests.post(
+                f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                json=payload,
+                timeout=15,
+            )
+        except requests.RequestException as e:
+            log.error("Telegram send request failed (%s)", type(e).__name__)
+            return False
     if r.status_code != 200:
-        log.error("Telegram send failed: %s %s", r.status_code, r.text[:200])
+        log.error("Telegram send failed: HTTP %s", r.status_code)
         return False
     return True
